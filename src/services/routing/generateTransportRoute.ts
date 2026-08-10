@@ -10,7 +10,8 @@ import type {
 } from "@/models/types";
 import { areIncompatible } from "@/services/compatibility/compatibility";
 import { groupIntoHouseholds, householdKey, type Household } from "@/utils/household";
-import { distanceKm, pathLengthKm, type Point } from "@/utils/geo";
+import { type Point } from "@/utils/geo";
+import { haversineMatrix, type TravelMatrix } from "./travel";
 import { statusOf } from "@/services/walkPlanner/generateWalkPlan";
 
 /**
@@ -40,7 +41,13 @@ export function generateTransportRoute(
   dogsNeedingTransport: Dog[],
   settings: AppSettings,
   locks: RouteLock[],
-  overrides: VanOverride[] = []
+  overrides: VanOverride[] = [],
+  /**
+   * Travel costs. Supply the Google matrix to optimise on real drive time;
+   * omit it and the builder falls back to straight-line, which keeps the app
+   * working with no API key and no network.
+   */
+  travel: TravelMatrix = haversineMatrix()
 ): TransportPlan {
   const depot: Point = { lat: settings.facilityLat, lng: settings.facilityLng };
   const needsReview: TransportPlan["needsReview"] = [];
@@ -153,25 +160,39 @@ export function generateTransportRoute(
         .filter((h): h is Household => !!h);
       for (const h of vanHouseholds) if (!sequence.includes(h)) sequence.push(h);
     } else {
-      sequence = twoOpt(nearestNeighbour(vanHouseholds, depot), depot);
+      sequence = twoOpt(nearestNeighbour(vanHouseholds, depot, travel), depot, travel);
     }
 
-    const stops: RouteStop[] = sequence.map((h) => ({
-      householdKey: h.key,
-      address: h.address,
-      lat: h.lat,
-      lng: h.lng,
-      dogIds: h.dogs.map((d) => d.id),
-      ownerNames: h.ownerNames,
-      reasons: stopReasons(h, routable, assignment, vanIndex, overriddenDogIds),
-    }));
+    // Cumulative drive time from leaving the facility.
+    let running = 0;
+    let cursor: Point = depot;
+    const stops: RouteStop[] = sequence.map((h) => {
+      const leg = travel.leg(cursor, h);
+      running += leg.seconds;
+      cursor = h;
+      return {
+        householdKey: h.key,
+        address: h.address,
+        lat: h.lat,
+        lng: h.lng,
+        dogIds: h.dogs.map((d) => d.id),
+        ownerNames: h.ownerNames,
+        reasons: stopReasons(h, routable, assignment, vanIndex, overriddenDogIds),
+        legMinutes: Math.round(leg.seconds / 60),
+        etaMinutes: Math.round(running / 60),
+      };
+    });
 
+    const returnLeg = sequence.length ? travel.leg(cursor, depot) : { km: 0, seconds: 0 };
     const reasons = manifestReasons(manifest, settings);
 
     return {
       vanIndex,
       stops,
-      distanceKm: routeLength(sequence, depot),
+      distanceKm: routeLength(sequence, depot, travel),
+      durationMinutes: sequence.length
+        ? Math.round((running + returnLeg.seconds) / 60)
+        : 0,
       status: statusOf(reasons.length ? reasons : stops.flatMap((s) => s.reasons)),
       locked: !!lock,
     };
@@ -290,18 +311,38 @@ export function validateVanMove(
 
 /* ---------------- route construction ---------------- */
 
-function nearestNeighbour(stops: Household[], depot: Point): Household[] {
+/**
+ * Ordering optimises on TIME, not distance. With a real traffic-aware matrix
+ * those differ: the shortest route through Singapore at 8am is often not the
+ * quickest one, and the driver cares about the clock.
+ */
+function tourSeconds(stops: Household[], depot: Point, travel: TravelMatrix): number {
+  if (!stops.length) return 0;
+  let total = 0;
+  let cursor: Point = depot;
+  for (const s of stops) {
+    total += travel.leg(cursor, s).seconds;
+    cursor = s;
+  }
+  return total + travel.leg(cursor, depot).seconds;
+}
+
+function nearestNeighbour(
+  stops: Household[],
+  depot: Point,
+  travel: TravelMatrix
+): Household[] {
   const pool = [...stops];
   const out: Household[] = [];
   let cursor: Point = depot;
 
   while (pool.length) {
     let best = 0;
-    let bestD = Infinity;
+    let bestCost = Infinity;
     for (let i = 0; i < pool.length; i++) {
-      const d = distanceKm(cursor, pool[i]);
-      if (d < bestD) {
-        bestD = d;
+      const cost = travel.leg(cursor, pool[i]).seconds;
+      if (cost < bestCost) {
+        bestCost = cost;
         best = i;
       }
     }
@@ -312,17 +353,23 @@ function nearestNeighbour(stops: Household[], depot: Point): Household[] {
   return out;
 }
 
-function routeLength(stops: Household[], depot: Point): number {
+function routeLength(stops: Household[], depot: Point, travel: TravelMatrix): number {
   if (!stops.length) return 0;
-  return pathLengthKm([depot, ...stops.map((s) => ({ lat: s.lat, lng: s.lng })), depot]);
+  let total = 0;
+  let cursor: Point = depot;
+  for (const s of stops) {
+    total += travel.leg(cursor, s).km;
+    cursor = s;
+  }
+  return total + travel.leg(cursor, depot).km;
 }
 
 /** 2-opt improvement over the closed depot→stops→depot tour. */
-function twoOpt(stops: Household[], depot: Point): Household[] {
+function twoOpt(stops: Household[], depot: Point, travel: TravelMatrix): Household[] {
   if (stops.length < 4) return stops;
 
   let best = [...stops];
-  let bestLen = routeLength(best, depot);
+  let bestCost = tourSeconds(best, depot, travel);
   let improved = true;
   let guard = 0;
 
@@ -336,10 +383,10 @@ function twoOpt(stops: Household[], depot: Point): Household[] {
           ...best.slice(i, k + 1).reverse(),
           ...best.slice(k + 1),
         ];
-        const len = routeLength(candidate, depot);
-        if (len < bestLen - 1e-9) {
+        const cost = tourSeconds(candidate, depot, travel);
+        if (cost < bestCost - 1e-9) {
           best = candidate;
-          bestLen = len;
+          bestCost = cost;
           improved = true;
         }
       }

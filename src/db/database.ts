@@ -13,7 +13,40 @@ import type {
   WalkLock,
   Walker,
 } from "@/models/types";
-import { FACILITY, LEGACY_FACILITY_ADDRESSES } from "@/config/facility";
+import {
+  FACILITY,
+  LEGACY_FACILITY_ADDRESSES,
+  LEGACY_FACILITY_COORDS,
+} from "@/config/facility";
+
+/**
+ * Move a stored facility onto the current default — but only when it still
+ * looks like a previous default. A staff-edited facility is never overwritten.
+ */
+async function migrateFacility(tx: {
+  table: (name: string) => {
+    get: (k: string) => Promise<AppSettings | undefined>;
+    put: (v: AppSettings) => Promise<unknown>;
+  };
+}): Promise<void> {
+  const settings = await tx.table("settings").get("singleton");
+  if (!settings) return;
+
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-4;
+  const staleAddress = LEGACY_FACILITY_ADDRESSES.includes(settings.facilityAddress);
+  const staleCoords = LEGACY_FACILITY_COORDS.some(
+    ([lat, lng]) => near(settings.facilityLat, lat) && near(settings.facilityLng, lng)
+  );
+  if (!staleAddress && !staleCoords) return;
+
+  await tx.table("settings").put({
+    ...settings,
+    facilityName: FACILITY.name,
+    facilityAddress: FACILITY.address,
+    facilityLat: FACILITY.lat,
+    facilityLng: FACILITY.lng,
+  });
+}
 
 /**
  * IndexedDB is the prototype's persistence. Everything reaches it through
@@ -56,22 +89,12 @@ export class DoggieRetreatDB extends Dexie {
       .stores({
         vanOverrides: "id, date, type, dogId",
       })
-      .upgrade(async (tx) => {
-        const settings = await tx.table("settings").get("singleton");
-        if (!settings) return;
+      .upgrade(async (tx) => migrateFacility(tx));
 
-        // Only migrate installs still sitting on a previous default. If staff
-        // set their own address, leave it alone.
-        if (LEGACY_FACILITY_ADDRESSES.includes(settings.facilityAddress)) {
-          await tx.table("settings").put({
-            ...settings,
-            facilityName: FACILITY.name,
-            facilityAddress: FACILITY.address,
-            facilityLat: FACILITY.lat,
-            facilityLng: FACILITY.lng,
-          });
-        }
-      });
+    // v3 — facility coordinates replaced with a real geocode. Installs that
+    // took v2 have the correct address but hand-set coordinates, so they get
+    // corrected here.
+    this.version(3).upgrade(async (tx) => migrateFacility(tx));
   }
 }
 

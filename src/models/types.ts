@@ -264,12 +264,18 @@ export interface RouteStop {
   dogIds: string[];
   ownerNames: string[];
   reasons: Reason[];
+  /** Minutes from leaving the facility until arriving at this stop. */
+  etaMinutes?: number;
+  /** Drive minutes on the leg into this stop. */
+  legMinutes?: number;
 }
 
 export interface VanRoute {
   vanIndex: number;
   stops: RouteStop[];
   distanceKm: number;
+  /** Total round-trip drive time including the return leg. */
+  durationMinutes?: number;
   status: PlanStatus;
   locked: boolean;
 }

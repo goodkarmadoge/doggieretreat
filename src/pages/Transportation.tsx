@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, Printer, RotateCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, Printer, RotateCcw, Ruler, Waypoints } from "lucide-react";
 import clsx from "clsx";
 import L from "leaflet";
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet";
@@ -18,6 +18,24 @@ import { reorderStops, validateVanMove } from "@/services/routing/generateTransp
 import type { Dog, Reason } from "@/models/types";
 
 const VAN_COLORS = ["#146A60", "#A8730A", "#7A4FA3", "#2E7D4F"];
+
+/** Vans roll at these times; kept in step with usePlans. */
+const DEPART_HOUR = { pickup: 8, dropoff: 18 } as const;
+
+function fmtMins(total: number): string {
+  if (total < 60) return `${total} min`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+/** Wall-clock estimate for a stop, given the van leaves base on the hour. */
+function clockAt(mode: "pickup" | "dropoff", minutesFromBase: number): string {
+  const d = new Date();
+  d.setHours(DEPART_HOUR[mode], 0, 0, 0);
+  d.setMinutes(d.getMinutes() + minutesFromBase);
+  return d.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
 
 const numberIcon = (n: number, color: string) =>
   L.divIcon({
@@ -43,7 +61,7 @@ export default function Transportation() {
   const settings = useSettings();
   const dogMap = useDogMap();
   const vanOverrides = useVanOverrides();
-  const plan = useTransportPlan(date, mode);
+  const { plan, travelSource, travelNote, loading } = useTransportPlan(date, mode);
 
   const [blocked, setBlocked] = useState<
     { dogIds: string[]; label: string; target: number; reasons: Reason[] } | null
@@ -157,10 +175,30 @@ export default function Transportation() {
         </span>
       </div>
 
-      <p className="rounded bg-ink-100 px-3 py-1.5 text-[11.5px] text-ink-500">
-        All runs start and end at {settings.facilityName}, {settings.facilityAddress}. Distances
-        are straight-line estimates between coordinates — there is no live traffic or
-        road-network routing in this prototype.
+      <p
+        className={clsx(
+          "flex flex-wrap items-center gap-1.5 rounded px-3 py-1.5 text-[11.5px]",
+          travelSource === "google"
+            ? "bg-signal-greenSoft text-signal-green"
+            : "bg-ink-100 text-ink-500"
+        )}
+      >
+        {travelSource === "google" ? <Waypoints size={13} /> : <Ruler size={13} />}
+        <span>
+          All runs start and end at <b>{settings.facilityName}, {settings.facilityAddress}</b>.{" "}
+          {travelSource === "google" ? (
+            <>
+              Ordered by <b>live road distance and traffic-aware drive time</b> from the Google
+              Routes API, for a {mode === "pickup" ? "08:00" : "18:00"} departure.
+            </>
+          ) : (
+            <>
+              Distances are <b>straight-line estimates</b>.{" "}
+              {travelNote ?? "Live routing is not active."}
+            </>
+          )}
+          {loading && <span className="ml-1 opacity-70">Updating with live traffic…</span>}
+        </span>
       </p>
 
       {blocked && (
@@ -245,8 +283,9 @@ export default function Transportation() {
                       <span className="inline-block h-3 w-3 rounded-sm" style={{ background: color }} />
                       Van {van.vanIndex + 1}
                       <span className="font-mono text-[12px] font-normal text-ink-500">
-                        {van.distanceKm.toFixed(1)} km · {van.stops.length}{" "}
-                        {van.stops.length === 1 ? "stop" : "stops"}
+                        {van.distanceKm.toFixed(1)} km
+                        {van.durationMinutes ? ` · ${fmtMins(van.durationMinutes)}` : ""} ·{" "}
+                        {van.stops.length} {van.stops.length === 1 ? "stop" : "stops"}
                       </span>
                     </h3>
                     <div className="flex items-center gap-1.5">
@@ -312,6 +351,15 @@ export default function Transportation() {
                           <p className="mt-0.5 font-mono text-[11px] leading-snug text-ink-500">
                             {stop.address}
                           </p>
+                          {stop.etaMinutes !== undefined && (
+                            <p className="font-mono text-[11px] text-ink-400">
+                              {mode === "pickup" ? "Arrive" : "Drop"} ~{clockAt(mode, stop.etaMinutes)}
+                              <span className="opacity-70">
+                                {" "}· {fmtMins(stop.etaMinutes)} from base
+                                {stop.legMinutes ? ` · ${fmtMins(stop.legMinutes)} leg` : ""}
+                              </span>
+                            </p>
+                          )}
                           {stop.ownerNames.length > 0 && (
                             <p className="text-[11px] text-ink-400">{stop.ownerNames.join(", ")}</p>
                           )}
