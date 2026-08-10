@@ -66,13 +66,13 @@ export async function loadDemoData(): Promise<void> {
   await db.transaction(
     "rw",
     [db.dogs, db.attendance, db.exceptions, db.walkers, db.floors, db.settings, db.audit,
-     db.walkLocks, db.floorLocks, db.routeLocks, db.transportOverrides],
+     db.walkLocks, db.floorLocks, db.routeLocks, db.transportOverrides, db.vanOverrides],
     async () => {
       await Promise.all([
         db.dogs.clear(), db.attendance.clear(), db.exceptions.clear(),
         db.walkers.clear(), db.floors.clear(), db.audit.clear(),
         db.walkLocks.clear(), db.floorLocks.clear(), db.routeLocks.clear(),
-        db.transportOverrides.clear(),
+        db.transportOverrides.clear(), db.vanOverrides.clear(),
       ]);
       await db.dogs.bulkPut(buildDemoDogs());
       await db.attendance.bulkPut(buildDemoAttendance());
@@ -89,13 +89,13 @@ export async function clearAllData(): Promise<void> {
   await db.transaction(
     "rw",
     [db.dogs, db.attendance, db.exceptions, db.walkers, db.floors, db.settings, db.audit,
-     db.walkLocks, db.floorLocks, db.routeLocks, db.transportOverrides],
+     db.walkLocks, db.floorLocks, db.routeLocks, db.transportOverrides, db.vanOverrides],
     async () => {
       await Promise.all([
         db.dogs.clear(), db.attendance.clear(), db.exceptions.clear(),
         db.walkers.clear(), db.floors.clear(), db.audit.clear(),
         db.walkLocks.clear(), db.floorLocks.clear(), db.routeLocks.clear(),
-        db.transportOverrides.clear(),
+        db.transportOverrides.clear(), db.vanOverrides.clear(),
       ]);
       await db.settings.put({ ...DEFAULT_SETTINGS, demoDataLoaded: false });
     }
@@ -388,6 +388,47 @@ export async function toggleRouteLock(
   const id = `${date}:${type}:${vanIndex}`;
   if (locked) await db.routeLocks.put({ id, date, type, vanIndex, stopOrder });
   else await db.routeLocks.delete(id);
+}
+
+/**
+ * Pin a dog to a van for one date. Held per dog so moving every dog at an
+ * address moves the whole stop, while moving one splits the household.
+ */
+export async function setVanAssignment(
+  date: string,
+  type: "pickup" | "dropoff",
+  dogId: string,
+  vanIndex: number
+): Promise<void> {
+  const dog = await db.dogs.get(dogId);
+  const id = `${date}:${type}:${dogId}`;
+  await db.vanOverrides.put({ id, date, type, dogId, vanIndex });
+  await recordAudit({
+    action: `${type === "pickup" ? "Pickup" : "Drop-off"} van reassigned`,
+    dogId,
+    dogName: dog?.name,
+    newValue: `Van ${vanIndex + 1} on ${date}`,
+  });
+}
+
+/** Move every dog at one address to a van in a single action. */
+export async function setVanAssignmentForDogs(
+  date: string,
+  type: "pickup" | "dropoff",
+  dogIds: string[],
+  vanIndex: number
+): Promise<void> {
+  for (const dogId of dogIds) {
+    await setVanAssignment(date, type, dogId, vanIndex);
+  }
+}
+
+export async function clearVanAssignments(
+  date: string,
+  type: "pickup" | "dropoff"
+): Promise<void> {
+  await db.vanOverrides.filter((o) => o.date === date && o.type === type).delete();
+  await recordAudit({ action: `Cleared staff van assignments for ${type} on ${date}` });
 }
 
 export async function saveRouteOrder(

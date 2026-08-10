@@ -14,6 +14,7 @@
  *   - Monday attendance sits just above one-wave walker capacity
  */
 
+import { FACILITY } from "@/config/facility";
 import type {
   AppSettings,
   AttendanceException,
@@ -220,10 +221,10 @@ export function buildDemoFloors(): Floor[] {
 export const DEFAULT_SETTINGS: AppSettings = {
   id: "singleton",
   maxDogsPerWalker: 4,
-  facilityName: "Doggie Retreat",
-  facilityAddress: "8 Jalan Kilang Barat, Singapore 159351",
-  facilityLat: 1.288,
-  facilityLng: 103.806,
+  facilityName: FACILITY.name,
+  facilityAddress: FACILITY.address,
+  facilityLat: FACILITY.lat,
+  facilityLng: FACILITY.lng,
   vanCount: 2,
   vanCapacity: null,
   redVanPolicy: "review",

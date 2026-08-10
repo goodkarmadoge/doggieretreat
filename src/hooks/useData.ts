@@ -11,6 +11,7 @@ import type {
   RecurringAttendance,
   RouteLock,
   TransportOverride,
+  VanOverride,
   WalkLock,
   Walker,
 } from "@/models/types";
@@ -105,6 +106,10 @@ export function useFloorLocks(): FloorLock[] {
 
 export function useRouteLocks(): RouteLock[] {
   return useLiveQuery(() => db.routeLocks.toArray(), [], [] as RouteLock[]) ?? [];
+}
+
+export function useVanOverrides(): VanOverride[] {
+  return useLiveQuery(() => db.vanOverrides.toArray(), [], [] as VanOverride[]) ?? [];
 }
 
 export function useDogMap(): Map<string, Dog> {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, Printer } from "lucide-react";
+import { ArrowDown, ArrowUp, Printer, RotateCcw } from "lucide-react";
 import clsx from "clsx";
 import L from "leaflet";
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet";
@@ -9,11 +9,13 @@ import {
   ColorBadge, CopyButton, DateNav, EmptyState, LockButton, ReasonList,
   SectionTitle, StatusPill,
 } from "@/components/ui";
-import { useDogMap, useRouteLocks, useSettings } from "@/hooks/useData";
+import { useDogMap, useSettings, useVanOverrides } from "@/hooks/useData";
 import { useTransportPlan } from "@/hooks/usePlans";
-import { saveRouteOrder, toggleRouteLock } from "@/db/repository";
-import { reorderStops } from "@/services/routing/generateTransportRoute";
-import type { Dog } from "@/models/types";
+import {
+  clearVanAssignments, saveRouteOrder, setVanAssignmentForDogs, toggleRouteLock,
+} from "@/db/repository";
+import { reorderStops, validateVanMove } from "@/services/routing/generateTransportRoute";
+import type { Dog, Reason } from "@/models/types";
 
 const VAN_COLORS = ["#146A60", "#A8730A", "#7A4FA3", "#2E7D4F"];
 
@@ -40,11 +42,49 @@ export default function Transportation() {
   const [mode, setMode] = useState<"pickup" | "dropoff">("pickup");
   const settings = useSettings();
   const dogMap = useDogMap();
-  const locks = useRouteLocks();
+  const vanOverrides = useVanOverrides();
   const plan = useTransportPlan(date, mode);
+
+  const [blocked, setBlocked] = useState<
+    { dogIds: string[]; label: string; target: number; reasons: Reason[] } | null
+  >(null);
 
   const depot: [number, number] = [settings.facilityLat, settings.facilityLng];
   const dogsOf = (ids: string[]) => ids.map((id) => dogMap.get(id)).filter((d): d is Dog => !!d);
+
+  const staffAssigned = vanOverrides.filter(
+    (o) => o.date === date && o.type === mode
+  ).length;
+
+  /**
+   * Staff are never blocked from moving a dog, but a move that puts two
+   * incompatible dogs in the same vehicle has to be acknowledged first.
+   */
+  const attemptMove = (
+    dogIds: string[],
+    target: number,
+    label: string,
+    force = false
+  ) => {
+    const onTarget = dogsOf(
+      (plan.vans[target]?.stops ?? []).flatMap((s) => s.dogIds)
+    );
+    const seen = new Set<string>();
+    const reasons = dogsOf(dogIds)
+      .flatMap((dog) => validateVanMove(dog, target, onTarget, settings))
+      .filter((r) => {
+        if (seen.has(r.message)) return false;
+        seen.add(r.message);
+        return true;
+      });
+
+    if (reasons.length && !force) {
+      setBlocked({ dogIds, label, target, reasons });
+      return;
+    }
+    void setVanAssignmentForDogs(date, mode, dogIds, target);
+    setBlocked(null);
+  };
 
   const allStops = plan.vans.flatMap((v) => v.stops);
   const center = useMemo<[number, number]>(() => {
@@ -106,15 +146,42 @@ export default function Transportation() {
         <button className="btn" onClick={() => window.print()}>
           <Printer size={13} /> Print run sheet
         </button>
+        {staffAssigned > 0 && (
+          <button className="btn" onClick={() => clearVanAssignments(date, mode)}>
+            <RotateCcw size={13} /> Reset {staffAssigned} staff assignment
+            {staffAssigned === 1 ? "" : "s"}
+          </button>
+        )}
         <span className="text-[12px] text-ink-500">
           {totalStops} stops · {totalDogs} dogs · {settings.vanCount} vans
         </span>
       </div>
 
       <p className="rounded bg-ink-100 px-3 py-1.5 text-[11.5px] text-ink-500">
-        Distances are straight-line estimates between coordinates. There is no live traffic or
+        All runs start and end at {settings.facilityName}, {settings.facilityAddress}. Distances
+        are straight-line estimates between coordinates — there is no live traffic or
         road-network routing in this prototype.
       </p>
+
+      {blocked && (
+        <div className="rounded border border-signal-red bg-signal-redSoft p-3">
+          <p className="text-[13px] font-bold text-signal-red">
+            Conflict — moving {blocked.label} to Van {blocked.target + 1} breaks a hard rule
+          </p>
+          <div className="mt-2"><ReasonList reasons={blocked.reasons} /></div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button className="btn" onClick={() => setBlocked(null)}>Cancel</button>
+            <button
+              className="btn border-signal-red bg-signal-red text-white"
+              onClick={() =>
+                attemptMove(blocked.dogIds, blocked.target, blocked.label, true)
+              }
+            >
+              Move anyway and accept the conflict
+            </button>
+          </div>
+        </div>
+      )}
 
       {totalStops === 0 ? (
         <div className="card">
@@ -206,22 +273,77 @@ export default function Transportation() {
                           {i + 1}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="flex flex-col gap-1">
                             {dogsOf(stop.dogIds).map((d) => (
-                              <Link
-                                key={d.id}
-                                to={`/dogs/${d.id}`}
-                                className="flex items-center gap-1 text-[13px] font-semibold hover:text-brand-700"
-                              >
-                                {d.name}
-                                <ColorBadge color={d.behaviorColor} size="sm" />
-                              </Link>
+                              <div key={d.id} className="flex flex-wrap items-center gap-1.5">
+                                <Link
+                                  to={`/dogs/${d.id}`}
+                                  className="flex items-center gap-1 text-[13px] font-semibold hover:text-brand-700"
+                                >
+                                  {d.name}
+                                  <ColorBadge color={d.behaviorColor} size="sm" />
+                                </Link>
+                                {/* Per-dog move only matters when the stop has
+                                    several dogs — otherwise it duplicates the
+                                    whole-stop control below. */}
+                                {settings.vanCount > 1 && stop.dogIds.length > 1 && (
+                                  <select
+                                    className="rounded border border-ink-300 bg-white px-1 py-0.5 text-[11px]"
+                                    value=""
+                                    onChange={(e) =>
+                                      e.target.value !== "" &&
+                                      attemptMove([d.id], Number(e.target.value), d.name)
+                                    }
+                                    aria-label={`Move ${d.name} to another van`}
+                                  >
+                                    <option value="">Move {d.name}…</option>
+                                    {Array.from({ length: settings.vanCount })
+                                      .map((_, vi) => vi)
+                                      .filter((vi) => vi !== van.vanIndex)
+                                      .map((vi) => (
+                                        <option key={vi} value={vi}>Van {vi + 1}</option>
+                                      ))}
+                                  </select>
+                                )}
+                              </div>
                             ))}
                           </div>
-                          <p className="font-mono text-[11px] leading-snug text-ink-500">{stop.address}</p>
+
+                          <p className="mt-0.5 font-mono text-[11px] leading-snug text-ink-500">
+                            {stop.address}
+                          </p>
                           {stop.ownerNames.length > 0 && (
                             <p className="text-[11px] text-ink-400">{stop.ownerNames.join(", ")}</p>
                           )}
+
+                          {settings.vanCount > 1 && (
+                            <select
+                              className="mt-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[11px]"
+                              value=""
+                              onChange={(e) =>
+                                e.target.value !== "" &&
+                                attemptMove(
+                                  stop.dogIds,
+                                  Number(e.target.value),
+                                  stop.dogIds.length > 1
+                                    ? `all ${stop.dogIds.length} dogs at this address`
+                                    : dogMap.get(stop.dogIds[0])?.name ?? "this dog"
+                                )
+                              }
+                              aria-label="Move this whole stop to another van"
+                            >
+                              <option value="">
+                                {stop.dogIds.length > 1 ? "Move whole stop…" : "Move to…"}
+                              </option>
+                              {Array.from({ length: settings.vanCount })
+                                .map((_, vi) => vi)
+                                .filter((vi) => vi !== van.vanIndex)
+                                .map((vi) => (
+                                  <option key={vi} value={vi}>Van {vi + 1}</option>
+                                ))}
+                            </select>
+                          )}
+
                           {stop.reasons.length > 0 && (
                             <div className="mt-1"><ReasonList reasons={stop.reasons} /></div>
                           )}

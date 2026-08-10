@@ -181,6 +181,23 @@ export interface RouteLock {
   stopOrder: string[];
 }
 
+/**
+ * A staff decision to put a specific dog on a specific van, overriding the
+ * packer.
+ *
+ * Assignment is held per DOG rather than per stop on purpose. Moving every dog
+ * at an address moves the whole stop, which is the common case; moving one dog
+ * out splits the household across two vans, which is the only way to separate
+ * incompatible dogs that live together.
+ */
+export interface VanOverride {
+  id: string;
+  date: string;
+  type: "pickup" | "dropoff";
+  dogId: string;
+  vanIndex: number;
+}
+
 /* ------------------------------------------------------------------ */
 /* Computed plan shapes — derived, never persisted as duplicated state */
 /* ------------------------------------------------------------------ */

@@ -17,6 +17,7 @@ import {
   useRouteLocks,
   useSettings,
   useTransportOverrides,
+  useVanOverrides,
   useWalkLocks,
   useWalkers,
 } from "./useData";
@@ -61,6 +62,7 @@ export function useFloorPlan(date: string): FloorPlan {
 export function useTransportPlan(date: string, type: "pickup" | "dropoff"): TransportPlan {
   const attending = useAttending(date);
   const overrides = useTransportOverrides();
+  const vanOverrides = useVanOverrides();
   const settings = useSettings();
   const locks = useRouteLocks();
 
@@ -68,8 +70,8 @@ export function useTransportPlan(date: string, type: "pickup" | "dropoff"): Tran
     const needing = attending.filter((d) =>
       type === "pickup" ? needsPickup(d, date, overrides) : needsDropoff(d, date, overrides)
     );
-    return generateTransportRoute(date, type, needing, settings, locks);
-  }, [date, type, attending, overrides, settings, locks]);
+    return generateTransportRoute(date, type, needing, settings, locks, vanOverrides);
+  }, [date, type, attending, overrides, settings, locks, vanOverrides]);
 }
 
 export function useTransportCounts(date: string) {
