@@ -94,7 +94,7 @@ export async function fetchTravelMatrix(
         const body = (await res.json().catch(() => ({}))) as { message?: string };
         return haversineMatrix(
           res.status === 503
-            ? "Google routing is not configured on the server, so distances are straight-line estimates."
+            ? "Set GOOGLE_MAPS_API_KEY in the Vercel project to enable live traffic routing."
             : body.message ?? `Routing request failed (${res.status}).`
         );
       }
