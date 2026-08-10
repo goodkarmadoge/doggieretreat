@@ -1,5 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { geocodeAddresses, getApiKey } from "../src/server/google";
+// Explicit .js extension: Vercel emits ESM, and an extensionless relative
+// import fails to resolve at runtime. Shared code lives under api/_lib so
+// Vercel compiles it alongside the handlers without routing it.
+import { geocodeAddresses, getApiKey } from "./_lib/google.js";
 
 /**
  * POST /api/geocode  { addresses: string[] }

@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
-import { computeRouteMatrix, geocodeAddresses, type LatLng } from "./src/server/google";
+import { computeRouteMatrix, geocodeAddresses, type LatLng } from "./api/_lib/google";
 
 /**
  * `vite dev` does not run Vercel functions, so /api/* would only exist after

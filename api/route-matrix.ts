@@ -1,10 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+// Explicit .js extension: Vercel emits ESM, and an extensionless relative
+// import fails to resolve at runtime. Shared code lives under api/_lib so
+// Vercel compiles it alongside the handlers without routing it.
 import {
   MAX_MATRIX_ELEMENTS,
   computeRouteMatrix,
   getApiKey,
   type LatLng,
-} from "../src/server/google";
+} from "./_lib/google.js";
 
 /**
  * POST /api/route-matrix
