@@ -35,8 +35,45 @@ export interface MatrixCell {
   ok: boolean;
 }
 
+/**
+ * Env var names accepted for the Maps key, in priority order. The canonical
+ * name is GOOGLE_MAPS_API_KEY; the rest are variants people actually type into
+ * a dashboard, accepted so a naming slip is not a silent outage.
+ */
+export const KEY_NAMES = [
+  "GOOGLE_MAPS_API_KEY",
+  "MAPS_API_KEY",
+  "GOOGLE_MAPS_KEY",
+  "GOOGLE_API_KEY",
+] as const;
+
 export function getApiKey(): string | null {
-  return process.env.GOOGLE_MAPS_API_KEY?.trim() || null;
+  for (const name of KEY_NAMES) {
+    const v = process.env[name]?.trim();
+    if (v) return v;
+  }
+
+  // Last resort: match case-insensitively. Vercel preserves the casing you
+  // type, so "Maps_API_Key" is a different key from "MAPS_API_KEY".
+  const wanted = new Set<string>(KEY_NAMES.map((n) => n.toLowerCase()));
+  for (const [name, value] of Object.entries(process.env)) {
+    if (wanted.has(name.toLowerCase()) && value?.trim()) return value.trim();
+  }
+  return null;
+}
+
+/**
+ * Diagnostic for "I added the key but it still says not configured".
+ * Returns env var NAMES only — never values. Names are not secrets; values are.
+ */
+export function keyDiagnostics(): {
+  searched: string[];
+  mapsLikeNamesPresent: string[];
+} {
+  const mapsLike = Object.keys(process.env).filter((n) =>
+    /google|maps/i.test(n)
+  );
+  return { searched: [...KEY_NAMES], mapsLikeNamesPresent: mapsLike.sort() };
 }
 
 /* ------------------------------------------------------------------ */

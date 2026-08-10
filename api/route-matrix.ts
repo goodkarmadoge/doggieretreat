@@ -6,6 +6,7 @@ import {
   MAX_MATRIX_ELEMENTS,
   computeRouteMatrix,
   getApiKey,
+  keyDiagnostics,
   type LatLng,
 } from "./_lib/google.js";
 
@@ -24,10 +25,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const key = getApiKey();
   if (!key) {
+    const diag = keyDiagnostics();
     res.status(503).json({
       error: "not_configured",
       message:
-        "GOOGLE_MAPS_API_KEY is not set on the server. Add it in the Vercel project's Environment Variables.",
+        "No Maps API key found on the server. Add it in the Vercel project's Environment Variables, then redeploy — env vars only apply to deployments created after they are added.",
+      // Names only, never values.
+      searchedNames: diag.searched,
+      mapsLikeNamesPresent: diag.mapsLikeNamesPresent,
     });
     return;
   }

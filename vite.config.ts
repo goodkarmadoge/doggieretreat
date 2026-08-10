@@ -90,8 +90,16 @@ export default defineConfig(({ mode }) => {
   // in the dev server process and is never injected into the client bundle.
   const env = loadEnv(mode, process.cwd(), "");
 
+  // Accept the same name variants the serverless functions do, so local dev
+  // and production behave identically.
+  const devKey =
+    env.GOOGLE_MAPS_API_KEY ||
+    env.MAPS_API_KEY ||
+    env.GOOGLE_MAPS_KEY ||
+    env.GOOGLE_API_KEY;
+
   return {
-    plugins: [react(), devApiRoutes(env.GOOGLE_MAPS_API_KEY)],
+    plugins: [react(), devApiRoutes(devKey)],
     resolve: {
       alias: { "@": path.resolve(__dirname, "./src") },
     },

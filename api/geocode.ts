@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 // Explicit .js extension: Vercel emits ESM, and an extensionless relative
 // import fails to resolve at runtime. Shared code lives under api/_lib so
 // Vercel compiles it alongside the handlers without routing it.
-import { geocodeAddresses, getApiKey } from "./_lib/google.js";
+import { geocodeAddresses, getApiKey, keyDiagnostics } from "./_lib/google.js";
 
 /**
  * POST /api/geocode  { addresses: string[] }
@@ -19,10 +19,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const key = getApiKey();
   if (!key) {
+    const diag = keyDiagnostics();
     res.status(503).json({
       error: "not_configured",
       message:
-        "GOOGLE_MAPS_API_KEY is not set on the server. Add it in the Vercel project's Environment Variables.",
+        "No Maps API key found on the server. Add it in the Vercel project's Environment Variables, then redeploy — env vars only apply to deployments created after they are added.",
+      searchedNames: diag.searched,
+      mapsLikeNamesPresent: diag.mapsLikeNamesPresent,
     });
     return;
   }
