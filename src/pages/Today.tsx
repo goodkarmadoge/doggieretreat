@@ -190,7 +190,16 @@ export default function Today() {
                       </td>
                       <td className="px-3 py-2 text-[12px]">
                         {dog.incompatibleDogIds.length ? (
-                          <span className="text-signal-red">{dog.incompatibleDogIds.length} flagged</span>
+                          <span className="flex flex-wrap gap-1">
+                            {dog.incompatibleDogIds.map((oid) => (
+                              <span
+                                key={oid}
+                                className="rounded bg-signal-redSoft px-1.5 py-0.5 text-[11px] font-semibold text-signal-red"
+                              >
+                                {allDogs.find((x) => x.id === oid)?.name ?? oid}
+                              </span>
+                            ))}
+                          </span>
                         ) : dog.conflictsReviewed ? (
                           <span className="text-ink-400">None</span>
                         ) : (
