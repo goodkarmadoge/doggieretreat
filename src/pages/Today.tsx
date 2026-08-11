@@ -98,7 +98,7 @@ export default function Today() {
           <p className="text-[13px] text-ink-600">
             {walk.groups.length} groups · {walk.excused.length} excused ·{" "}
             <span className={walk.unassigned.length ? "font-semibold text-signal-red" : ""}>
-              {walk.unassigned.length} need review
+              {walk.unassigned.length} {walk.unassigned.length === 1 ? "dog needs" : "dogs need"} review
             </span>
           </p>
           <Link to="/walks" className="btn btn-primary w-fit">Generate walks</Link>
@@ -117,7 +117,8 @@ export default function Today() {
               <>
                 {" · "}
                 <span className="font-semibold text-signal-amber">
-                  {floor.needsReview.length} need review
+                  {floor.needsReview.length}{" "}
+                  {floor.needsReview.length === 1 ? "dog needs" : "dogs need"} review
                 </span>
               </>
             )}

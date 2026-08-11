@@ -46,7 +46,8 @@ export default function CommandBar() {
   };
 
   return (
-    <section className="card flex flex-col gap-3 p-3">
+    /* Branded assistant: white surface, soft pink border, pink sparkle. */
+    <section className="flex flex-col gap-3 rounded-md border border-brand-300 bg-white p-4 shadow-sm">
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -54,7 +55,9 @@ export default function CommandBar() {
         }}
         className="flex flex-wrap items-center gap-2"
       >
-        <Sparkles size={15} className="text-brand-600" />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-100">
+          <Sparkles size={15} className="text-brand-600" />
+        </span>
         <input
           className="input min-w-[240px] flex-1"
           placeholder="Tell Doggie Retreat what you want to change…"
@@ -73,7 +76,7 @@ export default function CommandBar() {
             <button
               key={c}
               type="button"
-              className="rounded-full border border-dashed border-ink-300 px-2.5 py-1 text-[11.5px] text-ink-500 hover:border-brand-500 hover:text-brand-700"
+              className="dr-chip"
               onClick={() => {
                 setInput(c);
                 run(c);

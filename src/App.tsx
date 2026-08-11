@@ -57,38 +57,51 @@ export default function App() {
   return (
     <DateCtx.Provider value={{ date, setDate }}>
       <div className="flex min-h-screen">
-        <aside className="sticky top-0 flex h-screen w-[212px] shrink-0 flex-col border-r border-ink-200 bg-white">
-          <div className="flex flex-col gap-0.5 border-b border-ink-200 px-4 py-4">
-            <span className="label-xs">Operations</span>
-            <span className="text-[16px] font-bold tracking-tight">Doggie Retreat</span>
-            <span className="text-[11px] text-ink-500">
-              {settings.demoDataLoaded ? "Demo dataset loaded" : "No dataset loaded"}
+        <aside className="sticky top-0 flex h-screen w-[228px] shrink-0 flex-col border-r border-ink-200 bg-white">
+          <div className="flex flex-col items-center gap-2 border-b border-ink-200 px-4 py-5">
+            <img
+              src="/logo.png"
+              alt="Doggie Retreat"
+              className="w-[152px] max-w-full"
+              width={400}
+              height={268}
+            />
+            {/* Brand promise, set in the display face — one of the few places
+                Playfair is appropriate inside operational software. */}
+            <span className="text-center font-display text-[13px] leading-tight text-ink-500">
+              Happy dogs, happy families.
             </span>
           </div>
 
-          <nav className="flex flex-1 flex-col gap-0.5 p-2">
+          <nav className="flex flex-1 flex-col gap-1 p-3">
             {NAV.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
                 className={({ isActive }) =>
                   clsx(
-                    "flex items-center gap-2.5 rounded px-2.5 py-2 text-[13px] font-semibold",
+                    "flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-semibold",
                     isActive
-                      ? "bg-brand-50 text-brand-700"
-                      : "text-ink-600 hover:bg-ink-50 hover:text-ink-900"
+                      ? "bg-brand-100 text-brand-600"
+                      : "text-ink-700 hover:bg-brand-50 hover:text-brand-600"
                   )
                 }
+                style={{ borderRadius: 12 }}
               >
-                <Icon size={15} />
+                <Icon size={16} strokeWidth={2} />
                 {label}
               </NavLink>
             ))}
           </nav>
 
-          <div className="border-t border-ink-200 px-4 py-3 text-[11px] leading-relaxed text-ink-400">
-            <Database size={12} className="mb-1 inline" /> Local prototype. Data lives in this
-            browser only and is not synced between devices.
+          <div className="border-t border-ink-200 px-4 py-3">
+            <p className="text-[11px] font-semibold text-ink-700">
+              {settings.demoDataLoaded ? "Demo dataset loaded" : "No dataset loaded"}
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
+              <Database size={12} className="mb-0.5 mr-1 inline" />
+              Data lives in this browser only and is not synced between devices.
+            </p>
           </div>
         </aside>
 

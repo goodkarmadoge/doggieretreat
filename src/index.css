@@ -1,18 +1,40 @@
+/* Self-hosted so there is no CDN dependency and no flash of fallback type. */
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource/playfair-display/600.css";
+@import "@fontsource/playfair-display/700.css";
+
 @import "leaflet/dist/leaflet.css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Doggie Retreat design tokens — Brand Guidelines v1.0 */
+:root {
+  --dr-pink-500: #ec4899;
+  --dr-pink-100: #fdebf0;
+  --dr-pink-50: #fff5f8;
+  --dr-charcoal: #1f2937;
+  --dr-gray: #6b7280;
+  --dr-gray-light: #f3f4f6;
+  --dr-white: #ffffff;
+  --dr-success: #059669;
+  --dr-warning: #d99a00;
+  --dr-danger: #dc2626;
+  --dr-info: #2563eb;
+}
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
   }
   body {
+    /* Very light pink workspace, charcoal text. */
     @apply bg-ink-50 text-ink-900 font-sans text-[14px] leading-normal;
   }
+  /* Visible focus is a brand requirement, not an afterthought. */
   :focus-visible {
-    @apply outline-none ring-2 ring-brand-500 ring-offset-1 ring-offset-white;
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
   }
   table {
     font-variant-numeric: tabular-nums;
@@ -20,26 +42,64 @@
 }
 
 @layer components {
+  /* White card, soft pink border, 16px radius, subtle framing. */
   .card {
-    @apply bg-white border border-ink-200 rounded-md;
+    @apply bg-white border border-ink-200 rounded-md shadow-sm;
   }
+
   .label-xs {
-    @apply text-[10px] font-bold uppercase tracking-[0.09em] text-ink-400;
+    @apply text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-500;
   }
+
+  /*
+   * Default button is deliberately quiet. This class carries most of the
+   * utility actions in the app (print, reorder, clear locks); making every one
+   * of them pink-bordered would fight the brand's own "warm, not loud"
+   * principle. Pink is reserved for primary and true secondary actions.
+   */
   .btn {
-    @apply inline-flex items-center gap-1.5 rounded border border-ink-300 bg-white
-           px-3 py-1.5 text-[13px] font-semibold text-ink-800
-           hover:border-ink-400 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center gap-1.5 border border-ink-300 bg-white
+           px-3.5 py-2 text-[13px] font-semibold text-ink-800
+           hover:border-brand-400 hover:text-brand-700
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    border-radius: 14px;
+    min-height: 40px;
   }
+
+  /* Primary: the single most important action on a screen. */
   .btn-primary {
-    @apply border-brand-600 bg-brand-600 text-white hover:bg-brand-700 hover:border-brand-700;
+    @apply border-brand-600 bg-brand-600 text-white
+           hover:bg-brand-700 hover:border-brand-700 hover:text-white;
   }
+
+  /* Secondary: white surface, pink text, pink border. */
+  .btn-secondary {
+    @apply border-brand-500 text-brand-600 hover:bg-brand-50 hover:text-brand-700;
+  }
+
   .btn-sm {
-    @apply px-2 py-1 text-[12px];
+    @apply px-2.5 py-1 text-[12px];
+    min-height: 32px;
+    border-radius: 10px;
   }
+
   .input {
-    @apply w-full rounded border border-ink-300 bg-white px-2.5 py-1.5 text-[13px]
-           text-ink-900 placeholder:text-ink-400;
+    @apply w-full border border-ink-300 bg-white px-3 py-2 text-[13px]
+           text-ink-900 placeholder:text-ink-400
+           focus:border-brand-500;
+    border-radius: 12px;
+  }
+
+  /* Pale pink suggestion chip for the command bar. */
+  .dr-chip {
+    @apply rounded-full border border-brand-300 bg-brand-50 px-3 py-1.5
+           text-[11.5px] text-notice-ink hover:border-brand-500 hover:text-brand-700;
+  }
+
+  /* Informational surface — pale pink instead of a loud amber banner. */
+  .notice {
+    @apply rounded-md border border-notice-edge bg-notice-surface px-3 py-2
+           text-[12px] text-notice-ink;
   }
 }
 
@@ -47,4 +107,5 @@
 .leaflet-container {
   z-index: 0;
   font-family: inherit;
+  border-radius: 16px;
 }

@@ -182,6 +182,8 @@ export function StatCard({
 }: {
   label: string; value: ReactNode; tone?: "neutral" | "green" | "amber" | "red" | "brand"; hint?: string;
 }) {
+  // Large charcoal value by default; status colour only on the metric that
+  // actually needs it, so the eye goes to what requires attention.
   const tones = {
     neutral: "text-ink-900",
     green: "text-signal-green",
@@ -190,9 +192,9 @@ export function StatCard({
     brand: "text-brand-600",
   } as const;
   return (
-    <div className="card flex flex-col gap-0.5 px-3 py-2.5">
+    <div className="card flex flex-col gap-1 px-4 py-3">
       <span className="label-xs">{label}</span>
-      <span className={clsx("font-mono text-[22px] font-bold leading-tight tracking-tight", tones[tone])}>
+      <span className={clsx("text-[26px] font-bold leading-none tracking-tight", tones[tone])}>
         {value}
       </span>
       {hint && <span className="text-[11px] text-ink-500">{hint}</span>}
@@ -201,8 +203,10 @@ export function StatCard({
 }
 
 export function DemoBanner() {
+  // Informational, not dangerous — so a pale pink surface rather than an
+  // amber warning banner. Amber is kept for real operational warnings.
   return (
-    <div className="rounded border border-signal-amber/40 bg-signal-amberSoft px-3 py-2 text-[12px] text-signal-amber">
+    <div className="notice">
       <b>Demo data.</b> Dogs, owners and behaviour records are fictional. Floor capacities,
       the walker roster and every behaviour colour are synthetic demo values, not Doggie
       Retreat policy.
