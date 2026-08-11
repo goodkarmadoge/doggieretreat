@@ -15,6 +15,7 @@ import type {
   WalkLock,
   Walker,
 } from "@/models/types";
+import type { ReviewItem } from "@/services/harness/intents";
 
 /**
  * Every screen reads through these hooks, so a write to IndexedDB re-renders
@@ -110,6 +111,20 @@ export function useRouteLocks(): RouteLock[] {
 
 export function useVanOverrides(): VanOverride[] {
   return useLiveQuery(() => db.vanOverrides.toArray(), [], [] as VanOverride[]) ?? [];
+}
+
+/** NEEDS_HUMAN_REVIEW queue — AI Harness §5 Stage 5. */
+export function useReviewQueue(includeResolved = false): ReviewItem[] {
+  return useLiveQuery(
+    () =>
+      db.reviewQueue.toArray().then((rows) =>
+        rows
+          .filter((r) => (includeResolved ? true : !r.resolved))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      ),
+    [includeResolved],
+    [] as ReviewItem[]
+  ) ?? [];
 }
 
 export function useDogMap(): Map<string, Dog> {

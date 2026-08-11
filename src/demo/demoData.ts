@@ -229,6 +229,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   vanCapacity: null,
   redVanPolicy: "review",
   demoDataLoaded: false,
+  // Shift lead by default so the demo can approve confirm-tier actions without
+  // immediately hitting the permission wall.
+  staffRole: "shift_lead",
 };
 
 /**

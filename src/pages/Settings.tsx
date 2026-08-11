@@ -3,7 +3,9 @@ import { Plus, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { PageShell } from "@/App";
 import { ColorBadge, SectionTitle } from "@/components/ui";
-import { useAudit, useFloors, useSettings, useWalkers } from "@/hooks/useData";
+import { useAudit, useFloors, useReviewQueue, useSettings, useWalkers } from "@/hooks/useData";
+import { db } from "@/db/database";
+import { ROLE_LABEL, type StaffRole } from "@/services/harness/intents";
 import {
   clearAllData, deleteWalker, loadDemoData, updateSettings, upsertFloor, upsertWalker,
 } from "@/db/repository";
@@ -21,6 +23,7 @@ export default function SettingsPage() {
   const walkers = useWalkers();
   const floors = useFloors();
   const audit = useAudit(40);
+  const reviewQueue = useReviewQueue();
   const [newWalker, setNewWalker] = useState("");
 
   return (
@@ -252,6 +255,87 @@ export default function SettingsPage() {
           >
             Clear all data
           </button>
+        </div>
+      </section>
+
+      {/* AI harness — permission model (§8) and the review queue (§5 Stage 5) */}
+      <section className="card flex flex-col gap-3 p-3">
+        <SectionTitle
+          right={
+            <span className="flex items-center gap-1.5 text-[11.5px] text-ink-500">
+              <img src="/karma-head.png" alt="" aria-hidden="true"
+                   className="h-5 w-5 rounded-full" style={{ imageRendering: "pixelated" }} />
+              Karma, Canine Assistant
+            </span>
+          }
+        >
+          Who is on shift
+        </SectionTitle>
+        <p className="text-[11.5px] text-ink-400">
+          Karma checks this before applying anything. Higher-risk actions are queued for
+          approval rather than refused outright, so nothing a caretaker asks for is lost.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {(Object.keys(ROLE_LABEL) as StaffRole[]).map((r) => (
+            <button
+              key={r}
+              onClick={() => updateSettings({ staffRole: r })}
+              aria-pressed={(settings.staffRole ?? "shift_lead") === r}
+              className={clsx(
+                "rounded border p-2 text-left",
+                (settings.staffRole ?? "shift_lead") === r
+                  ? "border-brand-500 bg-brand-50"
+                  : "border-ink-200 hover:border-ink-300"
+              )}
+            >
+              <span className="text-[12.5px] font-semibold">{ROLE_LABEL[r]}</span>
+              <span className="mt-0.5 block text-[11px] text-ink-500">
+                {r === "caretaker" && "Attendance, walk groups and floors apply straight away."}
+                {r === "shift_lead" && "Can also approve incompatibility flags and reschedules."}
+                {r === "admin" && "Can also remove safety flags and record medical notes."}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="border-t border-ink-200 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="label-xs">Needs staff review</span>
+            <span className="text-[11.5px] text-ink-500">
+              {reviewQueue.length === 0
+                ? "Nothing waiting"
+                : `${reviewQueue.length} waiting`}
+            </span>
+          </div>
+          {reviewQueue.length === 0 ? (
+            <p className="mt-1 text-[12px] text-ink-400">
+              Anything Karma can't map to an approved action lands here with the original
+              wording, rather than being guessed at or dropped.
+            </p>
+          ) : (
+            <ul className="mt-2 flex max-h-[260px] flex-col gap-2 overflow-y-auto">
+              {reviewQueue.map((r) => (
+                <li key={r.id} className="rounded border border-ink-200 bg-ink-50 p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-signal-amberSoft px-2 py-0.5 text-[10px] font-bold text-signal-amber">
+                      {r.reason.replace(/_/g, " ")}
+                    </span>
+                    <span className="font-mono text-[10.5px] text-ink-400">
+                      {new Date(r.createdAt).toLocaleString("en-SG")}
+                    </span>
+                    <button
+                      className="ml-auto text-[11.5px] font-semibold text-brand-600 hover:text-brand-700"
+                      onClick={() => db.reviewQueue.update(r.id, { resolved: true })}
+                    >
+                      Mark handled
+                    </button>
+                  </div>
+                  <p className="mt-1 font-mono text-[11.5px] text-ink-700">“{r.sourceText}”</p>
+                  <p className="mt-0.5 text-[11.5px] text-ink-500">{r.message}</p>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
 

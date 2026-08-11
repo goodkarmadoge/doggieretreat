@@ -13,6 +13,7 @@ import type {
   WalkLock,
   Walker,
 } from "@/models/types";
+import type { ReviewItem } from "@/services/harness/intents";
 import {
   FACILITY,
   LEGACY_FACILITY_ADDRESSES,
@@ -66,6 +67,8 @@ export class DoggieRetreatDB extends Dexie {
   floorLocks!: Table<FloorLock, string>;
   routeLocks!: Table<RouteLock, string>;
   vanOverrides!: Table<VanOverride, string>;
+  /** AI Harness §5 Stage 5 — nothing is silently discarded. */
+  reviewQueue!: Table<ReviewItem, string>;
 
   constructor() {
     super("doggie-retreat");
@@ -95,6 +98,17 @@ export class DoggieRetreatDB extends Dexie {
     // took v2 have the correct address but hand-set coordinates, so they get
     // corrected here.
     this.version(3).upgrade(async (tx) => migrateFacility(tx));
+
+    // v4 — AI harness: the NEEDS_HUMAN_REVIEW queue, plus the staff role that
+    // the permission model is enforced against.
+    this.version(4)
+      .stores({ reviewQueue: "id, createdAt, reason, resolved" })
+      .upgrade(async (tx) => {
+        const settings = await tx.table("settings").get("singleton");
+        if (settings && !settings.staffRole) {
+          await tx.table("settings").put({ ...settings, staffRole: "shift_lead" });
+        }
+      });
   }
 }
 

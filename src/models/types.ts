@@ -144,6 +144,12 @@ export interface AppSettings {
   vanCapacity: number | null;
   redVanPolicy: RedVanPolicy;
   demoDataLoaded: boolean;
+  /**
+   * Who is using the console. The AI harness enforces its permission model
+   * (spec §8) against this at the action level, not by asking the interpreter
+   * to respect roles.
+   */
+  staffRole: "caretaker" | "shift_lead" | "admin";
 }
 
 export interface AuditEntry {
