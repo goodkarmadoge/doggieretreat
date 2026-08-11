@@ -62,14 +62,25 @@ const DAY_WORDS: Record<string, Weekday> = {
   sun: "Sun", sunday: "Sun", sundays: "Sun",
 };
 const DAY_PATTERN = Object.keys(DAY_WORDS).sort((a, b) => b.length - a.length).join("|");
-const toWeekday = (t: string): Weekday | null => DAY_WORDS[t.trim().toLowerCase()] ?? null;
+export const toWeekday = (t: string): Weekday | null =>
+  DAY_WORDS[t.trim().toLowerCase()] ?? null;
 
-type Resolved =
+/** Shared by both interpreters so relative dates resolve identically. */
+export function resolveDateHint(hint: string, today: string): string {
+  return resolveDate(hint, today);
+}
+
+export type Resolved =
   | { ok: true; dog: Dog }
   | { ok: false; ambiguous: Dog[]; token: string }
   | { ok: false; notFound: true; token: string };
 
-function resolveDog(token: string, dogs: Dog[]): Resolved {
+/**
+ * Identity resolution is deterministic and shared by BOTH interpreters. The
+ * Gemini path returns names as the caretaker wrote them and this resolves
+ * them, so the model can never fabricate an id or silently pick the wrong Max.
+ */
+export function resolveDog(token: string, dogs: Dog[]): Resolved {
   const q = token.trim().toLowerCase().replace(/[.,!?'"]+$/g, "");
   const active = dogs.filter((d) => d.active);
   if (!q) return { ok: false, notFound: true, token };

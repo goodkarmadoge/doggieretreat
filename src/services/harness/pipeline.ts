@@ -9,6 +9,7 @@ import {
   type HarnessAction, type ReviewItem, type ReviewReason, type StaffRole,
 } from "./intents";
 import { deterministicInterpreter, type HarnessContext, type InterpreterResult } from "./interpreter";
+import { interpretWithLlm } from "./llmInterpreter";
 import { SYSTEM_PROMPT_VERSION } from "./systemPrompt";
 import { validateAction, type ValidationResult } from "./validate";
 
@@ -18,6 +19,15 @@ import { validateAction, type ValidationResult } from "./validate";
  */
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+export interface PipelineMeta {
+  /** Which interpreter actually produced the reading. */
+  interpreter: "gemini" | "deterministic";
+  model?: string;
+  /** The model's one-line account of its reading. Displayed, never executed. */
+  rationale?: string;
+  note?: string;
+}
 
 export type PipelineOutcome =
   /** Applied straight away because the intent is auto-apply tier. Undo offered. */
@@ -29,6 +39,8 @@ export type PipelineOutcome =
   /** Queued for a person. Nothing fired. */
   | { kind: "review"; item: ReviewItem };
 
+export type PipelineResult = PipelineOutcome & { meta: PipelineMeta };
+
 /**
  * Runs a caretaker message through the whole harness.
  *
@@ -39,24 +51,50 @@ export type PipelineOutcome =
  */
 export async function runHarness(
   message: string,
-  ctx: HarnessContext
-): Promise<PipelineOutcome> {
-  const result: InterpreterResult = deterministicInterpreter.interpret({
-    systemPromptVersion: SYSTEM_PROMPT_VERSION,
-    userMessage: message, // DATA, never instruction
-    context: ctx,
-  });
+  ctx: HarnessContext,
+  opts: { useLlm?: boolean } = {}
+): Promise<PipelineResult> {
+  /*
+   * Stage 2. Which interpreter read the message changes NOTHING downstream —
+   * validation, risk tiering, permissions and logging are identical either
+   * way. An LLM reading is treated as exactly as untrusted as a regex one.
+   */
+  let result: InterpreterResult;
+  let meta: PipelineMeta;
+
+  if (opts.useLlm) {
+    const outcome = await interpretWithLlm(message, ctx);
+    result = outcome.result;
+    meta = {
+      interpreter: outcome.status === "used" ? "gemini" : "deterministic",
+      model: outcome.model,
+      rationale: outcome.rationale,
+      note: outcome.note,
+    };
+  } else {
+    result = deterministicInterpreter.interpret({
+      systemPromptVersion: SYSTEM_PROMPT_VERSION,
+      userMessage: message, // DATA, never instruction
+      context: ctx,
+    });
+    meta = { interpreter: "deterministic" };
+  }
 
   if (result.kind === "ambiguous") {
     return {
       kind: "ambiguous",
       token: result.prompt.token,
       candidates: result.prompt.candidates.map((d) => ({ id: d.id, name: d.name, breed: d.breed })),
+      meta,
     };
   }
 
   if (result.kind === "review") {
-    return { kind: "review", item: await queueReview(message, result.reason, result.message, ctx, result.intent, result.confidence) };
+    return {
+      kind: "review",
+      item: await queueReview(message, result.reason, result.message, ctx, result.intent, result.confidence),
+      meta,
+    };
   }
 
   const action = result.action;
@@ -71,6 +109,7 @@ export async function runHarness(
         `Karma was only ${Math.round(action.confidence * 100)}% sure this meant "${def.label}", which is below the ${Math.round(CONFIDENCE_THRESHOLD * 100)}% threshold.`,
         ctx, action.intent, action.confidence
       ),
+      meta,
     };
   }
 
@@ -82,6 +121,7 @@ export async function runHarness(
       item: await queueReview(
         message, "validation_failed", validation.errors.join(" "), ctx, action.intent, action.confidence
       ),
+      meta,
     };
   }
 
@@ -94,25 +134,27 @@ export async function runHarness(
         `"${def.label}" needs approval from ${roleLabel(def.minRole)}. It has been queued for review with your wording kept.`,
         ctx, action.intent, action.confidence
       ),
+      meta,
     };
   }
 
   // Stage 4 — risk tiering.
   if (def.risk === "auto_apply") {
-    const undo = await applyAction(action, ctx, "auto-applied");
-    return { kind: "applied", action, undo, warnings: validation.warnings };
+    const undo = await applyAction(action, ctx, "auto-applied", meta);
+    return { kind: "applied", action, undo, warnings: validation.warnings, meta };
   }
 
   // confirm and admin_only both require an explicit human tap.
-  return { kind: "confirm", action, validation };
+  return { kind: "confirm", action, validation, meta };
 }
 
 /** Called when the person taps Confirm on a confirm/admin-tier action. */
 export async function confirmAction(
   action: HarnessAction,
-  ctx: HarnessContext
+  ctx: HarnessContext,
+  meta?: PipelineMeta
 ): Promise<() => Promise<void>> {
-  return applyAction(action, ctx, "confirmed");
+  return applyAction(action, ctx, "confirmed", meta);
 }
 
 function roleLabel(r: StaffRole): string {
@@ -156,7 +198,8 @@ async function queueReview(
 async function applyAction(
   action: HarnessAction,
   ctx: HarnessContext,
-  how: "auto-applied" | "confirmed"
+  how: "auto-applied" | "confirmed",
+  meta?: PipelineMeta
 ): Promise<() => Promise<void>> {
   const def = INTENTS[action.intent];
   const p = action.params;
@@ -309,7 +352,11 @@ async function applyAction(
     dogId: action.dogIds[0],
     dogName: ctx.dogs.find((d) => d.id === action.dogIds[0])?.name,
     previousValue: action.source_text,
-    newValue: `${action.intent} · ${Math.round(action.confidence * 100)}% · ${ctx.role}`,
+    newValue:
+      `${action.intent} · ${Math.round(action.confidence * 100)}% · ${ctx.role}` +
+      // Which interpreter read it is part of the audit trail, so a disputed
+      // change can be traced to a model version rather than guessed at.
+      (meta ? ` · via ${meta.interpreter}${meta.model ? ` (${meta.model})` : ""}` : ""),
   });
 
   return undo;

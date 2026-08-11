@@ -1,9 +1,12 @@
-import { useState } from "react";
-import { Check, CornerDownLeft, ShieldCheck, Undo2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, CornerDownLeft, Cpu, ShieldCheck, Undo2, X } from "lucide-react";
 import clsx from "clsx";
 import { useDogs, useFloors, useRecurring, useSettings, useWalkers } from "@/hooks/useData";
 import { useOperatingDate } from "@/App";
-import { runHarness, confirmAction, type PipelineOutcome } from "@/services/harness/pipeline";
+import {
+  runHarness, confirmAction, type PipelineMeta, type PipelineResult,
+} from "@/services/harness/pipeline";
+import { llmAvailable } from "@/services/harness/llmInterpreter";
 import { INTENTS, type HarnessAction } from "@/services/harness/intents";
 import { db } from "@/db/database";
 
@@ -35,10 +38,18 @@ export default function CommandBar() {
 
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PipelineOutcome | null>(null);
+  const [outcome, setOutcome] = useState<PipelineResult | null>(null);
+  const [llmOn, setLlmOn] = useState<boolean | null>(null);
   const [applied, setApplied] = useState<
-    { label: string; undo: () => Promise<void>; warnings: string[] } | null
+    { label: string; undo: () => Promise<void>; warnings: string[]; meta: PipelineMeta } | null
   >(null);
+
+  // Probe once so the header can say honestly whether a model is behind Karma.
+  useEffect(() => {
+    let cancelled = false;
+    llmAvailable().then((v) => !cancelled && setLlmOn(v));
+    return () => { cancelled = true; };
+  }, []);
 
   const ctx = {
     today: date,
@@ -55,12 +66,13 @@ export default function CommandBar() {
     setBusy(true);
     setApplied(null);
     try {
-      const res = await runHarness(text, ctx);
+      const res = await runHarness(text, ctx, { useLlm: llmOn !== false });
       if (res.kind === "applied") {
         setApplied({
           label: res.action.preview,
           undo: res.undo,
           warnings: res.warnings,
+          meta: res.meta,
         });
         setOutcome(null);
         setInput("");
@@ -72,11 +84,11 @@ export default function CommandBar() {
     }
   };
 
-  const confirm = async (action: HarnessAction) => {
+  const confirm = async (action: HarnessAction, meta: PipelineMeta) => {
     setBusy(true);
     try {
-      await confirmAction(action, ctx);
-      setApplied({ label: action.preview, undo: async () => {}, warnings: [] });
+      await confirmAction(action, ctx, meta);
+      setApplied({ label: action.preview, undo: async () => {}, warnings: [], meta });
       setOutcome(null);
       setInput("");
     } finally {
@@ -120,13 +132,31 @@ export default function CommandBar() {
             Canine Assistant · tell me what changed and I'll do the paperwork
           </span>
         </span>
-        <span className="ml-auto flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-[10.5px] font-semibold text-slate-300">
-          <ShieldCheck size={12} className="text-brand-400" />
-          {settings.staffRole === "admin"
-            ? "Admin"
-            : settings.staffRole === "caretaker"
-              ? "Caretaker"
-              : "Shift lead"}
+        <span className="ml-auto flex items-center gap-1.5">
+          <span
+            className={clsx(
+              "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-semibold",
+              llmOn
+                ? "bg-brand-500/20 text-brand-200"
+                : "bg-white/5 text-slate-400"
+            )}
+            title={
+              llmOn
+                ? "Gemini reads your wording. Every action still passes the same validation, permission and confirmation checks."
+                : "No model configured — Karma is using built-in phrase matching."
+            }
+          >
+            <Cpu size={12} />
+            {llmOn === null ? "Checking…" : llmOn ? "Gemini" : "Offline matching"}
+          </span>
+          <span className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-[10.5px] font-semibold text-slate-300">
+            <ShieldCheck size={12} className="text-brand-400" />
+            {settings.staffRole === "admin"
+              ? "Admin"
+              : settings.staffRole === "caretaker"
+                ? "Caretaker"
+                : "Shift lead"}
+          </span>
         </span>
       </div>
 
@@ -261,11 +291,18 @@ export default function CommandBar() {
                 {tierBadge(outcome.action).t}
               </span>
               <span className="ml-auto font-mono text-[10.5px] text-slate-400">
-                {Math.round(outcome.action.confidence * 100)}% confident
+                {Math.round(outcome.action.confidence * 100)}% confident ·{" "}
+                {outcome.meta.interpreter === "gemini" ? outcome.meta.model ?? "gemini" : "built-in"}
               </span>
             </div>
 
             <p className="mt-1.5 text-[15px] font-bold text-white">{outcome.action.preview}</p>
+
+            {outcome.meta.rationale && (
+              <p className="mt-1 text-[11.5px] italic text-slate-400">
+                Karma read this as: {outcome.meta.rationale}
+              </p>
+            )}
 
             <ul className="mt-2 list-disc space-y-0.5 pl-5 text-[12px] text-slate-300">
               {outcome.action.detail.map((d, i) => <li key={i}>{d}</li>)}
@@ -308,7 +345,7 @@ export default function CommandBar() {
               <button
                 className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[12px] bg-brand-500 px-4
                            text-[13px] font-semibold text-white hover:bg-brand-400 disabled:opacity-60"
-                onClick={() => confirm(outcome.action)}
+                onClick={() => confirm(outcome.action, outcome.meta)}
                 disabled={busy}
               >
                 <Check size={14} /> Apply change
