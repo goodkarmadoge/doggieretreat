@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { Check, CornerDownLeft, Cpu, ShieldCheck, Undo2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Check, CornerDownLeft, Cpu, Mic, ShieldCheck, Square, Undo2, X,
+} from "lucide-react";
 import clsx from "clsx";
 import { useDogs, useFloors, useRecurring, useSettings, useWalkers } from "@/hooks/useData";
 import { useOperatingDate } from "@/App";
@@ -8,6 +10,11 @@ import {
 } from "@/services/harness/pipeline";
 import { llmAvailable } from "@/services/harness/llmInterpreter";
 import { INTENTS, type HarnessAction } from "@/services/harness/intents";
+import {
+  describeError, isDictationSupported, startDictation,
+  type DictationError, type DictationSession,
+} from "@/services/voice/speech";
+import { snapToRoster, type SnapCorrection } from "@/services/voice/snapToRoster";
 import { db } from "@/db/database";
 
 const EXAMPLES = [
@@ -50,6 +57,67 @@ export default function CommandBar() {
     llmAvailable().then((v) => !cancelled && setLlmOn(v));
     return () => { cancelled = true; };
   }, []);
+
+  /* ---------------- dictation ---------------- */
+
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [micError, setMicError] = useState<string | null>(null);
+  const [corrections, setCorrections] = useState<SnapCorrection[]>([]);
+  const session = useRef<DictationSession | null>(null);
+  const micSupported = isDictationSupported();
+
+  // Never leave the mic open if the component goes away mid-utterance.
+  useEffect(() => () => session.current?.abort(), []);
+
+  const rosterNames = [
+    ...dogs.filter((d) => d.active).map((d) => d.name),
+    ...walkers.map((w) => w.name),
+  ];
+
+  const stopListening = () => {
+    session.current?.stop();
+    session.current = null;
+    setListening(false);
+    setInterim("");
+  };
+
+  const startListening = () => {
+    setMicError(null);
+    setCorrections([]);
+    setOutcome(null);
+    setApplied(null);
+    setInterim("");
+    setListening(true);
+
+    session.current = startDictation({
+      onInterim: (t) => setInterim(t),
+      onFinal: (raw) => {
+        // Snap mangled names back to the roster before the harness sees it.
+        const { text, corrections: fixes } = snapToRoster(raw, rosterNames);
+        setCorrections(fixes);
+        setInput(text);
+        setInterim("");
+        setListening(false);
+        session.current = null;
+        // Hands are full — submit straight away. Every consequential action
+        // still shows a confirm card, and auto-apply ones carry Undo, so the
+        // safety net is unchanged.
+        void send(text);
+      },
+      onError: (e: DictationError) => {
+        setMicError(describeError(e));
+        setListening(false);
+        setInterim("");
+        session.current = null;
+      },
+      onEnd: () => {
+        setListening(false);
+        setInterim("");
+        session.current = null;
+      },
+    });
+  };
 
   const ctx = {
     today: date,
@@ -170,26 +238,89 @@ export default function CommandBar() {
           className="flex flex-wrap items-center gap-2"
         >
           <input
-            className="min-w-[240px] flex-1 rounded-[12px] border border-white/15 bg-white/5 px-3.5 py-2.5
+            className="min-w-[200px] flex-1 rounded-[12px] border border-white/15 bg-white/5 px-3.5 py-2.5
                        text-[13.5px] text-white placeholder:text-slate-400
                        focus:border-brand-400 focus:bg-white/10 focus:outline-none
                        focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-0"
-            placeholder="Tell Doggie Retreat what you want to change…"
-            value={input}
+            placeholder={listening ? "Listening…" : "Tell Doggie Retreat what you want to change…"}
+            value={listening && interim ? interim : input}
             onChange={(e) => setInput(e.target.value)}
             aria-label="Tell Karma what you want to change"
-            disabled={busy}
+            disabled={busy || listening}
           />
+
+          {/* Dictation. The whole point of this control is that a walker's
+              hands are full of leads, so it is a large, unmissable target. */}
+          {micSupported && (
+            <button
+              type="button"
+              onClick={listening ? stopListening : startListening}
+              disabled={busy}
+              aria-pressed={listening}
+              aria-label={listening ? "Stop listening" : "Speak to Karma"}
+              title={listening ? "Stop listening" : "Speak to Karma"}
+              className={clsx(
+                "inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full",
+                "transition-colors disabled:opacity-60",
+                listening
+                  ? "animate-pulse bg-brand-500 text-white ring-4 ring-brand-500/30"
+                  : "border border-white/20 bg-white/5 text-slate-200 hover:border-brand-400 hover:text-white"
+              )}
+            >
+              {listening ? <Square size={16} /> : <Mic size={18} />}
+            </button>
+          )}
+
           <button
             type="submit"
-            disabled={busy}
-            className="inline-flex min-h-[42px] items-center gap-1.5 rounded-[14px] bg-brand-500 px-4
+            disabled={busy || listening}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[14px] bg-brand-500 px-4
                        text-[13px] font-semibold text-white hover:bg-brand-400
                        disabled:opacity-60"
           >
             {busy ? "Reading…" : "Ask Karma"} <CornerDownLeft size={13} />
           </button>
         </form>
+
+        {/* Live feedback. Without this the walker has no idea it is working. */}
+        {listening && (
+          <p
+            className="mt-2 flex items-center gap-2 rounded-[10px] bg-brand-500/10 px-3 py-2 text-[12.5px] text-brand-100"
+            aria-live="polite"
+          >
+            <span className="flex h-2 w-2 shrink-0 animate-pulse rounded-full bg-brand-400" />
+            {interim ? `“${interim}”` : "Listening — say what changed, then pause."}
+          </p>
+        )}
+
+        {micError && (
+          <p className="mt-2 flex items-start gap-2 rounded-[10px] border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[12.5px] text-amber-200">
+            <span>{micError}</span>
+            <button
+              className="ml-auto text-amber-100/70 hover:text-white"
+              onClick={() => setMicError(null)}
+              aria-label="Dismiss"
+            >
+              <X size={13} />
+            </button>
+          </p>
+        )}
+
+        {/* Name corrections are surfaced, never silent — dictation gets these
+            wrong often enough that a walker must be able to catch it. */}
+        {corrections.length > 0 && (
+          <p className="mt-2 text-[11.5px] text-slate-400">
+            Heard and matched to the roster:{" "}
+            {corrections.map((c, i) => (
+              <span key={i}>
+                {i > 0 && ", "}
+                <span className="line-through opacity-70">{c.from}</span>
+                {" → "}
+                <span className="font-semibold text-slate-200">{c.to}</span>
+              </span>
+            ))}
+          </p>
+        )}
 
         {!outcome && !applied && (
           <div className="mt-3 flex flex-wrap gap-1.5">
