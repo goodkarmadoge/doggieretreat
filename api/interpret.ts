@@ -66,6 +66,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const body = (typeof req.body === "string" ? safeParse(req.body) : req.body) ?? {};
+
+  /*
+   * Diagnostic: which models does this key actually have? Model names are
+   * retired over time, and guessing produces a 404 that looks identical to a
+   * bad key. Returns names only — never the key.
+   */
+  if ((body as { op?: unknown }).op === "models") {
+    try {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}&pageSize=200`
+      );
+      const j = (await r.json()) as {
+        models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+      };
+      const usable = (j.models ?? [])
+        .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+        .map((m) => m.name?.replace(/^models\//, ""))
+        .filter(Boolean);
+      res.status(200).json({ configuredModel: DEFAULT_MODEL, usable });
+    } catch (e) {
+      res.status(502).json({ error: "upstream_failed", message: String(e) });
+    }
+    return;
+  }
+
   const userMessage = (body as { userMessage?: unknown }).userMessage;
   const ctx = (body as { context?: Record<string, unknown> }).context ?? {};
 
