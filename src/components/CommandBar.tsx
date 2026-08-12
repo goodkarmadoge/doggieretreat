@@ -18,11 +18,11 @@ import { snapToRoster, type SnapCorrection } from "@/services/voice/snapToRoster
 import { db } from "@/db/database";
 
 const EXAMPLES = [
+  "How many dogs are scheduled for Thursday?",
+  "Which dogs need a behaviour colour?",
   "Luna cannot be grouped with Mochi",
-  "Move Mochi from Monday to Wednesday going forward",
-  "Put Bailey on Van 2",
   "Bear isn't coming in today",
-  "Change Buddy to yellow",
+  "How many pickups tomorrow?",
 ];
 
 /**
@@ -41,7 +41,7 @@ export default function CommandBar() {
   const floors = useFloors();
   const walkers = useWalkers();
   const settings = useSettings();
-  const { date } = useOperatingDate();
+  const { date, setDate } = useOperatingDate();
 
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -387,6 +387,57 @@ export default function CommandBar() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* a question, answered — nothing changed, nothing queued */}
+        {outcome?.kind === "answer" && (
+          <div className="mt-3 rounded-[12px] border border-sky-400/30 bg-sky-400/10 p-3.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.09em] text-sky-300">
+                Answer
+              </span>
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                Nothing changed
+              </span>
+              {outcome.answer.date && (
+                <button
+                  className="ml-auto text-[11.5px] font-semibold text-sky-300 hover:text-sky-200"
+                  onClick={() => {
+                    setDate(outcome.answer.date!);
+                    setOutcome(null);
+                  }}
+                >
+                  Jump to {outcome.answer.date} →
+                </button>
+              )}
+            </div>
+
+            <p className="mt-1.5 text-[15px] font-bold text-white">{outcome.answer.headline}</p>
+
+            {outcome.answer.detail.map((d, i) => (
+              <p key={i} className="mt-1 text-[12.5px] text-slate-300">{d}</p>
+            ))}
+
+            {outcome.answer.chips && outcome.answer.chips.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {outcome.answer.chips.map((n) => (
+                  <span
+                    key={n}
+                    className="rounded-full bg-white/10 px-2 py-0.5 text-[11.5px] text-slate-200"
+                  >
+                    {n}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <button
+              className="mt-2.5 text-[11.5px] font-semibold text-slate-400 hover:text-white"
+              onClick={() => setOutcome(null)}
+            >
+              Dismiss
+            </button>
           </div>
         )}
 

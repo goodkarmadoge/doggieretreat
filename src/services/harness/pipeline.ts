@@ -10,6 +10,7 @@ import {
 } from "./intents";
 import { deterministicInterpreter, type HarnessContext, type InterpreterResult } from "./interpreter";
 import { interpretWithLlm } from "./llmInterpreter";
+import { answerQuestion, type QueryAnswer } from "./queries";
 import { SYSTEM_PROMPT_VERSION } from "./systemPrompt";
 import { validateAction, type ValidationResult } from "./validate";
 
@@ -30,6 +31,12 @@ export interface PipelineMeta {
 }
 
 export type PipelineOutcome =
+  /**
+   * A read-only question, answered immediately. Nothing is changed, so there
+   * is no confirmation, no permission tier and no audit entry — and crucially
+   * it never enters the review queue, which exists for safety escalations.
+   */
+  | { kind: "answer"; answer: QueryAnswer }
   /** Applied straight away because the intent is auto-apply tier. Undo offered. */
   | { kind: "applied"; action: HarnessAction; undo: () => Promise<void>; warnings: string[] }
   /** Needs an explicit tap to confirm before anything changes. */
@@ -54,6 +61,22 @@ export async function runHarness(
   ctx: HarnessContext,
   opts: { useLlm?: boolean } = {}
 ): Promise<PipelineResult> {
+  /*
+   * Stage 0 — is this a question rather than a change?
+   *
+   * Runs first and deliberately without the model: a question changes nothing,
+   * so it needs neither interpretation confidence nor a permission check, and
+   * routing it through the mutation pipeline only produced review-queue noise.
+   */
+  const [exceptions, transportOverrides] = await Promise.all([
+    db.exceptions.toArray(),
+    db.transportOverrides.toArray(),
+  ]);
+  const answer = answerQuestion(message, { ...ctx, exceptions, transportOverrides });
+  if (answer) {
+    return { kind: "answer", answer, meta: { interpreter: "deterministic" } };
+  }
+
   /*
    * Stage 2. Which interpreter read the message changes NOTHING downstream —
    * validation, risk tiering, permissions and logging are identical either
@@ -363,4 +386,4 @@ async function applyAction(
 }
 
 export { CONFIDENCE_THRESHOLD, INTENTS };
-export type { HarnessContext, ValidationResult };
+export type { HarnessContext, ValidationResult, QueryAnswer };

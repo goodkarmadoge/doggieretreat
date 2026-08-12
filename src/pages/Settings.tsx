@@ -136,6 +136,10 @@ export default function SettingsPage() {
         setRetryNote({ id, ok: true, message: `Approved — ${res.action.preview}` });
       } else if (res.kind === "ambiguous") {
         setRetryNote({ id, ok: false, message: `Still ambiguous: "${res.token}" matches ${res.candidates.length} dogs. Resolve it from Karma on Today.` });
+      } else if (res.kind === "answer") {
+        // A queued item that turns out to be a question needs no action.
+        await db.reviewQueue.update(id, { resolved: true });
+        setRetryNote({ id, ok: true, message: `That was a question, not a change — ${res.answer.headline}` });
       } else {
         setRetryNote({ id, ok: false, message: res.item.message });
       }
