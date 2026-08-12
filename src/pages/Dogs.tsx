@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Save, Undo2, X } from "lucide-react";
 import clsx from "clsx";
 import { PageShell } from "@/App";
 import { ColorBadge, EmptyState, SectionTitle } from "@/components/ui";
 import { useDogs, useRecurring } from "@/hooks/useData";
 import {
-  addRecurringDay, linkIncompatible, removeRecurringDay, setBehaviorColor,
+  addRecurringDay, createDog, linkIncompatible, removeRecurringDay, setBehaviorColor,
   unlinkIncompatible, updateDog,
 } from "@/db/repository";
 import { recurringDaysFor } from "@/services/scheduling/attendance";
@@ -41,6 +41,23 @@ export default function Dogs() {
   const [color, setColor] = useState<ColorFilter>("all");
   const [transport, setTransport] = useState<TransportFilter>("all");
   const [showInactive, setShowInactive] = useState(false);
+  const [addingName, setAddingName] = useState("");
+  const navigate = useNavigate();
+  const [search, setSearch] = useSearchParams();
+
+  /**
+   * Deep-link target for the setup panel on Today. Landing here already
+   * filtered is the difference between "14 dogs need a colour" as a statistic
+   * and as a task.
+   */
+  const fix = search.get("fix");
+  useEffect(() => {
+    // Reset both controls on every change, otherwise a filter set by a previous
+    // deep link silently intersects the next one — navigating from ?fix=colour
+    // to plain /dogs left the unassessed filter on and showed 14 of 50 dogs.
+    setColor(fix === "colour" ? "unassessed" : "all");
+    setTransport(fix === "transport" ? "none" : "all");
+  }, [fix]);
 
   /**
    * Edits are staged rather than written on each click, because this screen
@@ -206,13 +223,19 @@ export default function Dogs() {
         if (transport === "dropoff") return e.defaultDropoff === true;
         return !e.defaultPickup && !e.defaultDropoff;
       })
+      .filter((d) => {
+        // Deep-link filters the standard controls can't express.
+        if (fix === "days") return effective(d).days.length === 0;
+        if (fix === "conflicts") return !d.conflictsReviewed;
+        return true;
+      })
       .filter((d) =>
         !q ? true : `${d.name} ${d.ownerName ?? ""} ${d.breed ?? ""} ${d.id}`.toLowerCase().includes(q)
       )
       .sort((a, b) => a.name.localeCompare(b.name));
     // effective() reads drafts; listing it would need a stable ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dogs, query, color, transport, showInactive, drafts, recurring]);
+  }, [dogs, query, color, transport, showInactive, drafts, recurring, fix]);
 
   const counts = {
     green: dogs.filter((d) => d.active && d.behaviorColor === "green").length,
@@ -283,7 +306,53 @@ export default function Dogs() {
           />
           Show inactive
         </label>
+
+        {/* A dog arriving today shouldn't require editing a spreadsheet. */}
+        <form
+          className="ml-auto flex items-center gap-1.5"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!addingName.trim()) return;
+            const id = await createDog(addingName);
+            setAddingName("");
+            navigate(`/dogs/${id}`);
+          }}
+        >
+          <input
+            className="input w-[150px]"
+            placeholder="New dog's name…"
+            value={addingName}
+            onChange={(e) => setAddingName(e.target.value)}
+            aria-label="Name of a new dog to add"
+          />
+          <button type="submit" className="btn btn-primary btn-sm" disabled={!addingName.trim()}>
+            <Plus size={13} /> Add
+          </button>
+        </form>
       </div>
+
+      {fix && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-brand-300 bg-brand-50 px-3 py-2 text-[12.5px] text-ink-700">
+          <span>
+            Showing only the dogs that need{" "}
+            <b>
+              {fix === "colour" ? "a behaviour colour" : fix === "days" ? "daycare days"
+                : fix === "transport" ? "a transport preference" : "their conflicts checked"}
+            </b>
+            . Edit inline, then save.
+          </span>
+          <button
+            className="ml-auto font-semibold text-brand-700"
+            onClick={() => {
+              setSearch({});
+              setColor("all");
+              setTransport("all");
+            }}
+          >
+            Show all dogs
+          </button>
+        </div>
+      )}
 
       {savedNote && (
         <p className="rounded bg-signal-greenSoft px-3 py-2 text-[12.5px] font-semibold text-signal-green">
@@ -366,7 +435,7 @@ export default function Dogs() {
                                   }))
                                 }
                                 className={clsx(
-                                  "h-6 w-6 rounded border font-mono text-[11px] font-bold",
+                                  "tap-grow-sm h-6 w-6 rounded border font-mono text-[11px] font-bold",
                                   on && c === "green" && "border-signal-green bg-signal-green text-white",
                                   on && c === "yellow" && "border-signal-amber bg-signal-amber text-white",
                                   on && c === "red" && "border-signal-red bg-signal-red text-white",
@@ -404,7 +473,7 @@ export default function Dogs() {
                                   }))
                                 }
                                 className={clsx(
-                                  "h-6 w-7 rounded border font-mono text-[10px] font-semibold",
+                                  "tap-grow-sm h-6 w-7 rounded border font-mono text-[10px] font-semibold",
                                   on
                                     ? "border-brand-600 bg-brand-600 text-white"
                                     : "border-ink-300 bg-white text-ink-400 hover:border-brand-400"
@@ -432,7 +501,7 @@ export default function Dogs() {
                                 }))
                               }
                               className={clsx(
-                                "rounded border px-1.5 py-0.5 text-[11px] font-semibold",
+                                "tap-grow-sm rounded border px-1.5 py-0.5 text-[11px] font-semibold",
                                 val === true
                                   ? "border-brand-600 bg-brand-600 text-white"
                                   : val === false

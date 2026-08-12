@@ -9,6 +9,7 @@ import {
   ColorBadge, CopyButton, DateNav, EmptyState, LockButton, ReasonList,
   SectionTitle, StatusPill,
 } from "@/components/ui";
+import { formatShort } from "@/utils/dates";
 import { useDogMap, useSettings, useVanOverrides } from "@/hooks/useData";
 import { useTransportPlan } from "@/hooks/usePlans";
 import {
@@ -119,21 +120,41 @@ export default function Transportation() {
     await saveRouteOrder(date, mode, vanIndex, next.map((s) => s.householdKey));
   };
 
+  /**
+   * The run sheet a driver actually reads arrives via WhatsApp, so the copied
+   * text carries the same arrival times shown on screen. Previously it had
+   * distances only, which meant the traffic-aware routing never reached the
+   * person driving.
+   */
   const summary = [
-    `${date} ${mode === "pickup" ? "morning pickup" : "evening drop-off"}`,
+    `${settings.facilityName} — ${formatShort(date)}`,
+    mode === "pickup" ? "Morning pickup" : "Evening drop-off",
+    `Leaves base ${clockAt(mode, 0)}`,
+    "",
     ...plan.vans.flatMap((v) =>
       v.stops.length
         ? [
-            `Van ${v.vanIndex + 1} (${v.distanceKm.toFixed(1)} km):`,
-            ...v.stops.map(
-              (s, i) => `  ${i + 1}. ${dogsOf(s.dogIds).map((d) => d.name).join(" + ")} — ${s.address}`
-            ),
+            `VAN ${v.vanIndex + 1} — ${v.stops.length} stop${v.stops.length === 1 ? "" : "s"}, ` +
+              `${v.distanceKm.toFixed(1)} km${v.durationMinutes ? `, ${fmtMins(v.durationMinutes)}` : ""}`,
+            ...v.stops.map((s, i) => {
+              const names = dogsOf(s.dogIds).map((d) => d.name).join(" + ");
+              const eta = s.etaMinutes !== undefined ? `${clockAt(mode, s.etaMinutes)}  ` : "";
+              return `${eta}${i + 1}. ${names}\n     ${s.address}`;
+            }),
+            "",
           ]
         : []
     ),
     ...(plan.needsReview.length
-      ? [`NEEDS REVIEW: ${plan.needsReview.map((r) => dogMap.get(r.dogId)?.name).join(", ")}`]
+      ? [
+          `NEEDS REVIEW (not on a van): ${plan.needsReview
+            .map((r) => dogMap.get(r.dogId)?.name)
+            .join(", ")}`,
+        ]
       : []),
+    travelSource === "google"
+      ? "Times are traffic-aware estimates, not guarantees."
+      : "Times are rough estimates — live routing is off.",
   ].join("\n");
 
   const totalStops = allStops.length;

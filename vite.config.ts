@@ -22,7 +22,12 @@ describe an allow-listed change, return intent "none".`;
  *
  * Dev only — production uses the real functions in /api.
  */
-function devApiRoutes(apiKey: string | undefined, geminiKey: string | undefined): Plugin {
+function devApiRoutes(
+  apiKey: string | undefined,
+  geminiKey: string | undefined,
+  supabaseUrl: string | undefined,
+  supabaseKey: string | undefined
+): Plugin {
   return {
     name: "doggie-retreat-dev-api",
     apply: "serve",
@@ -109,9 +114,64 @@ function devApiRoutes(apiKey: string | undefined, geminiKey: string | undefined)
           });
         });
 
+      /** Dev shim for cloud backup. Mirrors api/sync.ts. */
+      const handleSync = async (
+        req: import("node:http").IncomingMessage,
+        res: import("node:http").ServerResponse
+      ) => {
+        res.setHeader("Content-Type", "application/json");
+        if (!supabaseUrl || !supabaseKey) {
+          res.statusCode = 503;
+          res.end(JSON.stringify({
+            error: "not_configured",
+            message: "Cloud backup needs SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in .env.local.",
+          }));
+          return;
+        }
+        let raw = "";
+        req.on("data", (c) => (raw += c));
+        await new Promise<void>((r) => req.on("end", () => r()));
+        let body: Record<string, unknown> = {};
+        try { body = JSON.parse(raw || "{}"); } catch { /* validated below */ }
+
+        const op = String(body.op ?? "");
+        const args =
+          op === "pull"
+            ? { fn: "dr_pull", payload: { p_workspace: String(body.workspaceId ?? "") } }
+            : {
+                fn: "dr_push",
+                payload: {
+                  p_workspace: String(body.workspaceId ?? ""),
+                  p_label: String(body.label ?? "Doggie Retreat"),
+                  p_device: String(body.device ?? "dev"),
+                  p_base_rev: typeof body.baseRevision === "number" ? body.baseRevision : null,
+                  p_payload: body.payload ?? {},
+                  p_force: body.force === true,
+                },
+              };
+        try {
+          const r = await fetch(`${supabaseUrl}/rest/v1/rpc/${args.fn}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify(args.payload),
+          });
+          const text = await r.text();
+          res.statusCode = r.ok ? 200 : 502;
+          res.end(r.ok ? text : JSON.stringify({ error: "upstream_failed", message: text.slice(0, 300) }));
+        } catch (e) {
+          res.statusCode = 502;
+          res.end(JSON.stringify({ error: "upstream_failed", message: String(e) }));
+        }
+      };
+
       server.middlewares.use(async (req, res, next) => {
         const url = req.url?.split("?")[0];
         if (url === "/api/interpret") return handleInterpret(req, res);
+        if (url === "/api/sync") return handleSync(req, res);
         if (url !== "/api/geocode" && url !== "/api/route-matrix") return next();
 
         res.setHeader("Content-Type", "application/json");
@@ -183,8 +243,12 @@ export default defineConfig(({ mode }) => {
   const geminiKey =
     env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY || env.GOOGLE_AI_API_KEY;
 
+  const supabaseUrl = env.SUPABASE_URL || env.SUPABASE_PROJECT_URL;
+  const supabaseKey =
+    env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY || env.SUPABASE_KEY;
+
   return {
-    plugins: [react(), devApiRoutes(devKey, geminiKey)],
+    plugins: [react(), devApiRoutes(devKey, geminiKey, supabaseUrl, supabaseKey)],
     resolve: {
       alias: { "@": path.resolve(__dirname, "./src") },
     },

@@ -31,6 +31,17 @@
   body {
     /* Very light pink workspace, charcoal text. */
     @apply bg-ink-50 text-ink-900 font-sans text-[14px] leading-normal;
+    /*
+     * Wide content (tables, the map, run sheets) must scroll inside its own
+     * container, never drag the whole page sideways. Every page was doing the
+     * latter on a phone, by 77–168px.
+     */
+    overflow-x: hidden;
+  }
+  /* Long addresses and dog names must not force the layout wider. */
+  main {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   /* Visible focus is a brand requirement, not an afterthought. */
   :focus-visible {
@@ -81,6 +92,23 @@
     @apply px-2.5 py-1 text-[12px];
     min-height: 32px;
     border-radius: 10px;
+  }
+
+  /*
+   * Touch sizing. The brand guidelines ask for 40–44px targets; the dense
+   * inline editors on the Dogs table are 24px, which is fine with a mouse and
+   * unusable with a thumb. On coarse pointers they grow, and the table gets a
+   * little more room per row to absorb it.
+   */
+  @media (pointer: coarse) {
+    .tap-grow {
+      min-height: 40px;
+      min-width: 40px;
+    }
+    .tap-grow-sm {
+      min-height: 36px;
+      min-width: 36px;
+    }
   }
 
   .input {

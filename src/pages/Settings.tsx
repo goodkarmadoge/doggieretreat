@@ -1,11 +1,21 @@
-import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  CloudDownload, CloudUpload, Download, Plus, RefreshCw, Trash2, Upload as UploadIcon,
+} from "lucide-react";
 import clsx from "clsx";
 import { PageShell } from "@/App";
 import { ColorBadge, SectionTitle } from "@/components/ui";
-import { useAudit, useFloors, useReviewQueue, useSettings, useWalkers } from "@/hooks/useData";
+import {
+  useAudit, useDogs, useFloors, useRecurring, useReviewQueue, useSettings, useWalkers,
+} from "@/hooks/useData";
 import { db } from "@/db/database";
 import { ROLE_LABEL, type StaffRole } from "@/services/harness/intents";
+import { confirmAction, runHarness } from "@/services/harness/pipeline";
+import {
+  cloudStatus, downloadSnapshot, getWorkspaceId, pullFromCloud, pushToCloud,
+  restoreSnapshot, setWorkspaceId, type CloudStatus,
+} from "@/services/backup/backup";
+import { todayISO } from "@/utils/dates";
 import {
   clearAllData, deleteWalker, loadDemoData, updateSettings, upsertFloor, upsertWalker,
 } from "@/db/repository";
@@ -24,7 +34,117 @@ export default function SettingsPage() {
   const floors = useFloors();
   const audit = useAudit(40);
   const reviewQueue = useReviewQueue();
+  const dogs = useDogs();
+  const recurring = useRecurring();
   const [newWalker, setNewWalker] = useState("");
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [retryNote, setRetryNote] = useState<{ id: string; ok: boolean; message: string } | null>(null);
+
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [wsInput, setWsInput] = useState("");
+  const [workspaceId, setWorkspaceIdState] = useState<string | null>(getWorkspaceId());
+  const [backupNote, setBackupNote] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    cloudStatus().then((s) => !cancelled && setCloud(s));
+    return () => { cancelled = true; };
+  }, []);
+
+  const doExport = async () => {
+    try {
+      const name = await downloadSnapshot();
+      setBackupNote({ ok: true, message: `Saved ${name}` });
+    } catch (e) {
+      setBackupNote({ ok: false, message: `Export failed: ${String(e)}` });
+    }
+  };
+
+  const doPush = async () => {
+    setSyncing(true);
+    setBackupNote(null);
+    try {
+      let res = await pushToCloud();
+      if (res.kind === "conflict") {
+        const ok = confirm(
+          `Another device has backed up more recently (revision ${res.serverRevision}).\n\n` +
+          `Overwrite it with what's on this device?\n\n` +
+          `Cancel to leave the cloud copy alone — you can pull it instead.`
+        );
+        if (!ok) {
+          setBackupNote({ ok: false, message: "Backup cancelled. The cloud copy is untouched." });
+          return;
+        }
+        res = await pushToCloud(true);
+      }
+      if (res.kind === "ok") {
+        setWorkspaceIdState(getWorkspaceId());
+        setBackupNote({ ok: true, message: `Backed up (revision ${res.revision}).` });
+      } else if (res.kind === "error") {
+        setBackupNote({ ok: false, message: res.message });
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const doPull = async () => {
+    if (!confirm("Restoring replaces everything currently in this browser. Continue?")) return;
+    setSyncing(true);
+    setBackupNote(null);
+    try {
+      const res = await pullFromCloud();
+      if (res.kind === "ok") {
+        const total = Object.values(res.counts).reduce((a, b) => a + b, 0);
+        setBackupNote({ ok: true, message: `Restored ${total} records from revision ${res.revision}.` });
+      } else if (res.kind === "empty") {
+        setBackupNote({ ok: false, message: "That workspace has no backup yet." });
+      } else {
+        setBackupNote({ ok: false, message: res.message });
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  /**
+   * Put a queued message back through the harness under the current role.
+   * Auto-apply actions land immediately; confirm-tier ones are applied here
+   * because a lead re-running an item IS the confirmation.
+   */
+  const retryReview = async (id: string, sourceText: string) => {
+    setRetrying(id);
+    setRetryNote(null);
+    try {
+      const ctx = {
+        today: todayISO(),
+        dogs,
+        recurring,
+        floors,
+        walkers,
+        vanCount: settings.vanCount,
+        role: settings.staffRole ?? "shift_lead",
+      };
+      const res = await runHarness(sourceText, ctx, { useLlm: true });
+      if (res.kind === "applied") {
+        await db.reviewQueue.update(id, { resolved: true });
+        setRetryNote({ id, ok: true, message: `Applied — ${res.action.preview}` });
+      } else if (res.kind === "confirm") {
+        await confirmAction(res.action, ctx, res.meta);
+        await db.reviewQueue.update(id, { resolved: true });
+        setRetryNote({ id, ok: true, message: `Approved — ${res.action.preview}` });
+      } else if (res.kind === "ambiguous") {
+        setRetryNote({ id, ok: false, message: `Still ambiguous: "${res.token}" matches ${res.candidates.length} dogs. Resolve it from Karma on Today.` });
+      } else {
+        setRetryNote({ id, ok: false, message: res.item.message });
+      }
+    } catch (e) {
+      setRetryNote({ id, ok: false, message: String(e) });
+    } finally {
+      setRetrying(null);
+    }
+  };
 
   return (
     <PageShell title="Settings" description="Operational configuration. Demo values are labelled.">
@@ -243,6 +363,110 @@ export default function SettingsPage() {
         </section>
       </div>
 
+      {/* Data durability. Everything lives in one browser, so this is the only
+          thing standing between a cleared cache and losing all enrichment. */}
+      <section className="card flex flex-col gap-3 p-3">
+        <SectionTitle
+          right={
+            <span className="text-[11.5px] text-ink-500">
+              {cloud === null ? "Checking…" : cloud.configured ? "Cloud backup available" : "Local backup only"}
+            </span>
+          }
+        >
+          Backup &amp; restore
+        </SectionTitle>
+        <p className="text-[12px] text-ink-500">
+          Doggie Retreat keeps its records in this browser. Clearing site data would erase
+          every behaviour colour, conflict flag and schedule with no way back — so take a
+          backup before you rely on it.
+        </p>
+
+        {backupNote && (
+          <p
+            className={clsx(
+              "rounded px-3 py-2 text-[12.5px] font-semibold",
+              backupNote.ok
+                ? "bg-signal-greenSoft text-signal-green"
+                : "bg-signal-redSoft text-signal-red"
+            )}
+          >
+            {backupNote.message}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          <span className="label-xs">On this device</span>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn btn-primary" onClick={doExport}>
+              <Download size={13} /> Download a backup
+            </button>
+            <label className="btn cursor-pointer">
+              <UploadIcon size={13} /> Restore from a file
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!f) return;
+                  if (!confirm("Restoring replaces everything currently in this browser. Continue?")) return;
+                  const report = await restoreSnapshot(await f.text());
+                  setBackupNote(
+                    report.ok
+                      ? { ok: true, message: "Backup restored." }
+                      : { ok: false, message: report.error ?? "Restore failed." }
+                  );
+                }}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5 border-t border-ink-200 pt-2.5">
+          <span className="label-xs">Cloud backup</span>
+          {cloud && !cloud.configured ? (
+            <p className="rounded bg-ink-100 px-3 py-2 text-[12px] text-ink-600">
+              {cloud.message ?? "Not configured."}
+            </p>
+          ) : (
+            <>
+              <p className="text-[11.5px] text-ink-500">
+                Workspace <span className="font-mono">{workspaceId ?? "not linked yet"}</span>. Paste
+                this id on another device to load the same dataset there.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="btn btn-primary" disabled={syncing} onClick={doPush}>
+                  <CloudUpload size={13} /> {syncing ? "Working…" : "Back up now"}
+                </button>
+                <button className="btn" disabled={syncing || !workspaceId} onClick={doPull}>
+                  <CloudDownload size={13} /> Restore from cloud
+                </button>
+                <input
+                  className="input w-[290px] font-mono text-[11.5px]"
+                  placeholder="Paste a workspace id to link this device…"
+                  value={wsInput}
+                  onChange={(e) => setWsInput(e.target.value)}
+                  aria-label="Workspace id"
+                />
+                <button
+                  className="btn btn-sm"
+                  disabled={!wsInput.trim()}
+                  onClick={() => {
+                    setWorkspaceId(wsInput.trim());
+                    setWorkspaceIdState(wsInput.trim());
+                    setWsInput("");
+                    setBackupNote({ ok: true, message: "Device linked. Use “Restore from cloud” to pull the data." });
+                  }}
+                >
+                  Link
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
       <section className="card flex flex-wrap items-center gap-2 p-3">
         <SectionTitle>Dataset</SectionTitle>
         <div className="flex flex-1 flex-wrap justify-end gap-2">
@@ -324,14 +548,42 @@ export default function SettingsPage() {
                       {new Date(r.createdAt).toLocaleString("en-SG")}
                     </span>
                     <button
-                      className="ml-auto text-[11.5px] font-semibold text-brand-600 hover:text-brand-700"
+                      className="ml-auto text-[11.5px] font-semibold text-ink-500 hover:text-ink-800"
                       onClick={() => db.reviewQueue.update(r.id, { resolved: true })}
                     >
-                      Mark handled
+                      Dismiss
                     </button>
                   </div>
                   <p className="mt-1 font-mono text-[11.5px] text-ink-700">“{r.sourceText}”</p>
                   <p className="mt-0.5 text-[11.5px] text-ink-500">{r.message}</p>
+
+                  {/*
+                    Queued items used to be a dead end — a lead could only mark
+                    them handled, then redo the work by hand. Re-running puts
+                    the original wording back through the full pipeline under
+                    the current role, so a permission-blocked action can simply
+                    be approved.
+                  */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      disabled={retrying === r.id}
+                      onClick={() => retryReview(r.id, r.sourceText)}
+                    >
+                      <RefreshCw size={11} />
+                      {retrying === r.id ? "Re-running…" : "Re-run as " + ROLE_LABEL[settings.staffRole ?? "shift_lead"].split(" ")[0]}
+                    </button>
+                    {retryNote?.id === r.id && (
+                      <span
+                        className={clsx(
+                          "text-[11.5px] font-semibold",
+                          retryNote.ok ? "text-signal-green" : "text-signal-amber"
+                        )}
+                      >
+                        {retryNote.message}
+                      </span>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

@@ -4,7 +4,8 @@ import CommandBar from "@/components/CommandBar";
 import {
   ColorBadge, DateNav, DemoBanner, EmptyState, SectionTitle, StatCard,
 } from "@/components/ui";
-import { useDogs, useFloors, useSettings } from "@/hooks/useData";
+import SetupProgress from "@/components/SetupProgress";
+import { useDogs, useFloors, useRecurring, useSettings } from "@/hooks/useData";
 import {
   useAttending, useFloorPlan, useTransportCounts, useWalkPlan,
 } from "@/hooks/usePlans";
@@ -15,6 +16,7 @@ export default function Today() {
   const { date, setDate } = useOperatingDate();
   const settings = useSettings();
   const allDogs = useDogs();
+  const recurring = useRecurring();
 
   const attending = useAttending(date);
   const walk = useWalkPlan(date);
@@ -77,10 +79,13 @@ export default function Today() {
         />
       </div>
 
+      {/* Replaces a warning that was permanently on with finite, linkable work. */}
+      <SetupProgress dogs={allDogs} recurring={recurring} compact />
+
       {unassessed > 0 && (
         <p className="rounded border border-signal-amber/40 bg-signal-amberSoft px-3 py-2 text-[12.5px] text-signal-amber">
           <b>{unassessed}</b> attending {unassessed === 1 ? "dog has" : "dogs have"} no behaviour
-          colour recorded. They are held out of automatic grouping until a person assesses them.
+          colour recorded, so they are held out of today's grouping.
         </p>
       )}
 

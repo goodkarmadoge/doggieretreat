@@ -446,6 +446,31 @@ export async function saveRouteOrder(
 /* Bulk import                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Create a dog by hand. Previously the only way in was a CSV reimport, which
+ * meant a dog arriving on Monday couldn't be booked until someone edited a
+ * spreadsheet.
+ */
+export async function createDog(name: string, ownerName?: string): Promise<string> {
+  const id = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  await db.dogs.add({
+    id,
+    name: name.trim() || "New dog",
+    ownerName: ownerName?.trim() || undefined,
+    behaviorColor: null,
+    incompatibleDogIds: [],
+    conflictsReviewed: false,
+    constraints: [],
+    defaultPickup: null,
+    defaultDropoff: null,
+    operationalNotes: "",
+    active: true,
+    isDemo: false,
+  });
+  await recordAudit({ action: "Dog added by hand", dogId: id, dogName: name.trim() });
+  return id;
+}
+
 export async function bulkUpsertDogs(dogs: Dog[]): Promise<void> {
   await db.dogs.bulkPut(dogs);
 }

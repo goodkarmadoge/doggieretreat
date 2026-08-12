@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import { Check, FileUp, Upload } from "lucide-react";
+import { Check, FileUp, MapPin, Upload } from "lucide-react";
 import clsx from "clsx";
 import { PageShell } from "@/App";
 import { EmptyState, SectionTitle, StatCard } from "@/components/ui";
 import { useDogs } from "@/hooks/useData";
-import { bulkUpsertDogs, loadDemoData, recordAudit } from "@/db/repository";
+import { bulkUpsertDogs, loadDemoData, recordAudit, updateDog } from "@/db/repository";
+import { db } from "@/db/database";
+import { geocode } from "@/services/routing/travel";
 import { buildCollarCsvFixture } from "@/demo/demoData";
 import {
   FIELD_LABELS, REQUIRED_FIELDS, materialise, parseCsv, planImport, suggestMapping,
@@ -18,6 +20,14 @@ export default function DataImport() {
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
   const [mapping, setMapping] = useState<Mapping>({});
   const [committed, setCommitted] = useState<ImportPlan["counts"] | null>(null);
+  const [geocodeOnImport, setGeocodeOnImport] = useState(true);
+  const [geoState, setGeoState] = useState<{
+    running: boolean; done: number; total: number; failed: number; note?: string;
+  }>({ running: false, done: 0, total: 0, failed: 0 });
+
+  const missingCoords = existing.filter(
+    (d) => d.active && d.address && (d.lat === undefined || d.lng === undefined)
+  ).length;
 
   const plan = useMemo<ImportPlan | null>(
     () => (parsed ? planImport(parsed, mapping, existing) : null),
@@ -44,6 +54,60 @@ export default function DataImport() {
     });
     setCommitted(plan.counts);
     setParsed(null);
+
+    // Addresses without coordinates cannot be routed. Geocode them right after
+    // import rather than leaving the routing engine guessing.
+    if (geocodeOnImport) void runGeocode();
+  };
+
+  /**
+   * Turn addresses into real coordinates. Every route starts from these, so an
+   * approximate coordinate quietly degrades every run sheet.
+   */
+  const runGeocode = async () => {
+    const targets = (await db.dogs.toArray()).filter(
+      (d) => d.active && d.address && (d.lat === undefined || d.lng === undefined)
+    );
+    if (!targets.length) {
+      setGeoState({ running: false, done: 0, total: 0, failed: 0, note: "Every address already has coordinates." });
+      return;
+    }
+
+    setGeoState({ running: true, done: 0, total: targets.length, failed: 0 });
+    let done = 0;
+    let failed = 0;
+
+    // Batched so a 50-dog import is a handful of requests, not fifty.
+    for (let i = 0; i < targets.length; i += 20) {
+      const batch = targets.slice(i, i + 20);
+      try {
+        const results = await geocode(batch.map((d) => d.address!));
+        for (let j = 0; j < batch.length; j++) {
+          const r = results[j];
+          if (r?.lat != null && r?.lng != null) {
+            await updateDog(batch[j].id, { lat: r.lat, lng: r.lng });
+            done++;
+          } else {
+            failed++;
+          }
+        }
+      } catch (e) {
+        setGeoState({
+          running: false, done, total: targets.length, failed,
+          note: String(e).includes("not configured")
+            ? "Geocoding needs GOOGLE_MAPS_API_KEY on the server."
+            : String(e),
+        });
+        return;
+      }
+      setGeoState({ running: true, done, total: targets.length, failed });
+    }
+
+    await recordAudit({ action: `Geocoded ${done} addresses (${failed} could not be matched)` });
+    setGeoState({
+      running: false, done, total: targets.length, failed,
+      note: `Located ${done} of ${targets.length} addresses.`,
+    });
   };
 
   return (
@@ -58,6 +122,64 @@ export default function DataImport() {
           Behaviour colours, compatibility, schedules, transport and constraints were preserved.
         </div>
       )}
+
+      {/* Addresses -> coordinates. Every route is computed from these, so an
+          address with no coordinate silently degrades the whole run sheet. */}
+      <section className="card flex flex-col gap-2 p-3">
+        <SectionTitle
+          right={
+            <span className="text-[12px] text-ink-500">
+              {missingCoords === 0
+                ? "All addresses located"
+                : `${missingCoords} address${missingCoords === 1 ? "" : "es"} without coordinates`}
+            </span>
+          }
+        >
+          Address locations
+        </SectionTitle>
+        <p className="text-[12px] text-ink-500">
+          Routing starts from the coordinates behind each address. Locating them with Google
+          Geocoding makes pickup order and arrival times accurate.
+        </p>
+
+        {geoState.running && (
+          <div className="rounded bg-brand-50 px-3 py-2 text-[12.5px] text-brand-700">
+            Locating addresses… {geoState.done} of {geoState.total}
+          </div>
+        )}
+        {!geoState.running && geoState.note && (
+          <div
+            className={clsx(
+              "rounded px-3 py-2 text-[12.5px]",
+              geoState.failed > 0
+                ? "bg-signal-amberSoft text-signal-amber"
+                : "bg-signal-greenSoft text-signal-green"
+            )}
+          >
+            {geoState.note}
+            {geoState.failed > 0 && ` ${geoState.failed} could not be matched and kept their previous position.`}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="btn btn-primary"
+            onClick={runGeocode}
+            disabled={geoState.running || missingCoords === 0}
+          >
+            <MapPin size={13} />
+            {missingCoords === 0 ? "Nothing to locate" : `Locate ${missingCoords} address${missingCoords === 1 ? "" : "es"}`}
+          </button>
+          <label className="flex items-center gap-1.5 text-[12.5px] text-ink-600">
+            <input
+              type="checkbox"
+              checked={geocodeOnImport}
+              onChange={(e) => setGeocodeOnImport(e.target.checked)}
+            />
+            Locate automatically after each import
+          </label>
+        </div>
+      </section>
 
       {!parsed && (
         <div className="grid gap-3 md:grid-cols-2">
