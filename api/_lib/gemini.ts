@@ -94,7 +94,10 @@ const RESPONSE_SCHEMA = {
     van_number: { type: "integer", description: "1-based van number, or 0 if not mentioned." },
     floor_number: { type: "integer", description: "1-based floor number, or 0 if not mentioned." },
     walker_name: { type: "string", description: "Walker's name if one is named, else empty." },
-    colour: { type: "string", enum: ["green", "yellow", "red", ""] },
+    // No empty-string sentinel: Gemini rejects an empty enum member outright
+    // ("enum[3]: cannot be empty"). The field is simply omitted when it does
+    // not apply, and the parser below already treats absent as "".
+    colour: { type: "string", enum: ["green", "yellow", "red"], nullable: true },
     note: { type: "string", description: "Free-text detail such as a medical instruction. Empty if none." },
     confidence: { type: "number", description: "0 to 1. Be honest; low confidence is safer than a wrong guess." },
     rationale: { type: "string", description: "One short sentence on the reading you took." },
