@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
-  DEFAULT_MODEL, geminiKeyDiagnostics, getGeminiKey, interpretWithGemini,
+  DEFAULT_MODEL, answerWithGemini, geminiKeyDiagnostics, getGeminiKey, interpretWithGemini,
 } from "./_lib/gemini.js";
 
 /**
@@ -88,6 +88,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch (e) {
       res.status(502).json({ error: "upstream_failed", message: String(e) });
     }
+    return;
+  }
+
+  /* Read-only question answering. Cannot produce an action. */
+  if ((body as { op?: unknown }).op === "answer") {
+    const question = (body as { question?: unknown }).question;
+    const snapshot = (body as { snapshot?: unknown }).snapshot;
+    if (typeof question !== "string" || !question.trim()) {
+      res.status(400).json({ error: "question must be a non-empty string." });
+      return;
+    }
+    if (typeof snapshot !== "string" || snapshot.length > 120_000) {
+      res.status(400).json({ error: "snapshot must be a string under 120k characters." });
+      return;
+    }
+    const out = await answerWithGemini(
+      { apiKey: key, model: DEFAULT_MODEL },
+      question.slice(0, 1000),
+      snapshot
+    );
+    if (!out.ok) {
+      res.status(502).json({ error: "upstream_failed", message: out.error, model: out.model });
+      return;
+    }
+    res.status(200).json({
+      answer: out.answer, dogNames: out.dogNames, grounded: out.grounded, model: out.model,
+    });
     return;
   }
 

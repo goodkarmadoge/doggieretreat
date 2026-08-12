@@ -28,7 +28,7 @@ const DateCtx = createContext<{ date: string; setDate: (d: string) => void }>({
 export const useOperatingDate = () => useContext(DateCtx);
 
 const NAV = [
-  { to: "/today", label: "Today", icon: CalendarDays },
+  { to: "/today", label: "Home", icon: CalendarDays },
   { to: "/dogs", label: "Dogs", icon: DogIcon },
   { to: "/transportation", label: "Transportation", icon: RouteIcon },
   { to: "/walks", label: "Walk Planner", icon: Footprints },
@@ -101,7 +101,7 @@ export default function App() {
           </button>
           <img src="/logo.png" alt="Doggie Retreat" className="h-9 w-auto" width={400} height={268} />
           <span className="ml-auto truncate text-[12px] font-semibold text-ink-500">
-            {NAV.find((n) => location.hash.startsWith(`#${n.to}`))?.label ?? "Today"}
+            {NAV.find((n) => location.hash.startsWith(`#${n.to}`))?.label ?? "Home"}
           </span>
         </header>
 

@@ -11,6 +11,7 @@ import {
 import { deterministicInterpreter, type HarnessContext, type InterpreterResult } from "./interpreter";
 import { interpretWithLlm } from "./llmInterpreter";
 import { answerQuestion, type QueryAnswer } from "./queries";
+import { askGemini } from "./askGemini";
 import { SYSTEM_PROMPT_VERSION } from "./systemPrompt";
 import { validateAction, type ValidationResult } from "./validate";
 
@@ -56,25 +57,81 @@ export type PipelineResult = PipelineOutcome & { meta: PipelineMeta };
  * It travels as the `userMessage` data field and comes out the other side as
  * either one allow-listed structured action or a review item.
  */
+/** What the person said they were doing. Chosen explicitly, not inferred. */
+export type HarnessMode = "ask" | "change";
+
 export async function runHarness(
   message: string,
   ctx: HarnessContext,
-  opts: { useLlm?: boolean } = {}
+  opts: { useLlm?: boolean; mode?: HarnessMode } = {}
 ): Promise<PipelineResult> {
-  /*
-   * Stage 0 — is this a question rather than a change?
-   *
-   * Runs first and deliberately without the model: a question changes nothing,
-   * so it needs neither interpretation confidence nor a permission check, and
-   * routing it through the mutation pipeline only produced review-queue noise.
-   */
+  const mode: HarnessMode = opts.mode ?? "change";
+
   const [exceptions, transportOverrides] = await Promise.all([
     db.exceptions.toArray(),
     db.transportOverrides.toArray(),
   ]);
-  const answer = answerQuestion(message, { ...ctx, exceptions, transportOverrides });
-  if (answer) {
-    return { kind: "answer", answer, meta: { interpreter: "deterministic" } };
+
+  /*
+   * ASK mode — read-only, and it can never reach the mutation pipeline.
+   *
+   * The deterministic query engine answers the common shapes instantly and at
+   * no cost. Anything it does not recognise goes to Gemini to answer in prose
+   * against a snapshot of the roster. Previously questions were inferred from
+   * phrasing, and anything compound ("which dogs are red AND in on Friday")
+   * fell through to the review queue — which is what made questions feel
+   * broken. Being told the mode removes the guess entirely.
+   */
+  if (mode === "ask") {
+    const local = answerQuestion(message, { ...ctx, exceptions, transportOverrides });
+    if (local) {
+      return { kind: "answer", answer: local, meta: { interpreter: "deterministic" } };
+    }
+    if (opts.useLlm) {
+      const out = await askGemini(message, { ...ctx, exceptions });
+      if (out.kind === "answer") {
+        return {
+          kind: "answer",
+          answer: out.answer,
+          meta: { interpreter: "gemini", model: out.model },
+        };
+      }
+      return {
+        kind: "answer",
+        answer: { headline: out.message, detail: [] },
+        meta: { interpreter: "deterministic", note: out.message },
+      };
+    }
+    return {
+      kind: "answer",
+      answer: {
+        headline: "Karma couldn't answer that one offline.",
+        detail: [
+          "Set questions like attendance, pickups, conflicts and setup gaps work without a model.",
+          "Open-ended questions need a Gemini key configured on the server.",
+        ],
+      },
+      meta: { interpreter: "deterministic" },
+    };
+  }
+
+  /*
+   * CHANGE mode. A question typed here is caught and redirected rather than
+   * queued, because a question is never a safety escalation.
+   */
+  const strayQuestion = answerQuestion(message, { ...ctx, exceptions, transportOverrides });
+  if (strayQuestion) {
+    return {
+      kind: "answer",
+      answer: {
+        ...strayQuestion,
+        detail: [
+          ...strayQuestion.detail,
+          "That looked like a question, so Karma answered it instead of changing anything.",
+        ],
+      },
+      meta: { interpreter: "deterministic" },
+    };
   }
 
   /*

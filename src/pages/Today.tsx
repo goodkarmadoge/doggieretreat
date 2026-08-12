@@ -31,7 +31,7 @@ export default function Today() {
 
   if (!allDogs.length) {
     return (
-      <PageShell title="Today" description="Operational overview">
+      <PageShell title="Home" description="Operational overview">
         <div className="card">
           <EmptyState
             title="No dogs in the database yet"

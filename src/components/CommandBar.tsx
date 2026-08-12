@@ -6,7 +6,8 @@ import clsx from "clsx";
 import { useDogs, useFloors, useRecurring, useSettings, useWalkers } from "@/hooks/useData";
 import { useOperatingDate } from "@/App";
 import {
-  runHarness, confirmAction, type PipelineMeta, type PipelineResult,
+  runHarness, confirmAction,
+  type HarnessMode, type PipelineMeta, type PipelineResult,
 } from "@/services/harness/pipeline";
 import { llmAvailable } from "@/services/harness/llmInterpreter";
 import { INTENTS, type HarnessAction } from "@/services/harness/intents";
@@ -17,13 +18,20 @@ import {
 import { snapToRoster, type SnapCorrection } from "@/services/voice/snapToRoster";
 import { db } from "@/db/database";
 
-const EXAMPLES = [
-  "How many dogs are scheduled for Thursday?",
-  "Which dogs need a behaviour colour?",
-  "Luna cannot be grouped with Mochi",
-  "Bear isn't coming in today",
-  "How many pickups tomorrow?",
-];
+const EXAMPLES: Record<"ask" | "change", string[]> = {
+  ask: [
+    "How many dogs are scheduled for Thursday?",
+    "Which dogs are red and coming in on Friday?",
+    "Who can't be grouped with Kiara?",
+    "Which dogs still need a behaviour colour?",
+  ],
+  change: [
+    "Luna cannot be grouped with Mochi",
+    "Bear isn't coming in today",
+    "Move Mochi from Monday to Wednesday going forward",
+    "Put Bailey on Van 2",
+  ],
+};
 
 /**
  * Karma — the caretaker-facing end of the AI harness.
@@ -43,6 +51,13 @@ export default function CommandBar() {
   const settings = useSettings();
   const { date, setDate } = useOperatingDate();
 
+  /**
+   * Asking and changing are different jobs with different consequences, and
+   * inferring which one from phrasing was unreliable — compound questions kept
+   * falling into the change pipeline and filling the review queue. Being told
+   * outright is both more accurate and clearer about what is about to happen.
+   */
+  const [mode, setMode] = useState<HarnessMode>("ask");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<PipelineResult | null>(null);
@@ -134,7 +149,7 @@ export default function CommandBar() {
     setBusy(true);
     setApplied(null);
     try {
-      const res = await runHarness(text, ctx, { useLlm: llmOn !== false });
+      const res = await runHarness(text, ctx, { useLlm: llmOn !== false, mode });
       if (res.kind === "applied") {
         setApplied({
           label: res.action.preview,
@@ -228,6 +243,37 @@ export default function CommandBar() {
         </span>
       </div>
 
+      {/* mode — asking and changing are different jobs, chosen not guessed */}
+      <div className="flex gap-1 border-b border-white/10 px-4 py-2.5">
+        {([
+          ["ask", "Ask a question", "Read only — nothing changes"],
+          ["change", "Make a change", "Updates the schedule"],
+        ] as const).map(([m, label, hint]) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => { setMode(m); setOutcome(null); setApplied(null); }}
+            aria-pressed={mode === m}
+            title={hint}
+            className={clsx(
+              "flex min-h-[40px] flex-1 flex-col items-center justify-center rounded-[12px] px-3 py-1.5",
+              "text-[13px] font-semibold transition-colors sm:flex-none sm:flex-row sm:gap-2",
+              mode === m
+                ? "bg-brand-500 text-white"
+                : "bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
+            )}
+          >
+            {label}
+            <span className={clsx(
+              "text-[10.5px] font-normal",
+              mode === m ? "text-white/75" : "text-slate-500"
+            )}>
+              {hint}
+            </span>
+          </button>
+        ))}
+      </div>
+
       {/* input */}
       <div className="px-4 py-4">
         <form
@@ -242,7 +288,13 @@ export default function CommandBar() {
                        text-[13.5px] text-white placeholder:text-slate-400
                        focus:border-brand-400 focus:bg-white/10 focus:outline-none
                        focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-0"
-            placeholder={listening ? "Listening…" : "Tell Doggie Retreat what you want to change…"}
+            placeholder={
+              listening
+                ? "Listening…"
+                : mode === "ask"
+                  ? "Ask Karma anything about the roster…"
+                  : "Tell Karma what changed…"
+            }
             value={listening && interim ? interim : input}
             onChange={(e) => setInput(e.target.value)}
             aria-label="Tell Karma what you want to change"
@@ -278,7 +330,8 @@ export default function CommandBar() {
                        text-[13px] font-semibold text-white hover:bg-brand-400
                        disabled:opacity-60"
           >
-            {busy ? "Reading…" : "Ask Karma"} <CornerDownLeft size={13} />
+            {busy ? (mode === "ask" ? "Thinking…" : "Reading…") : mode === "ask" ? "Ask" : "Preview"}
+            <CornerDownLeft size={13} />
           </button>
         </form>
 
@@ -324,7 +377,7 @@ export default function CommandBar() {
 
         {!outcome && !applied && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {EXAMPLES.map((c) => (
+            {EXAMPLES[mode].map((c) => (
               <button
                 key={c}
                 type="button"
