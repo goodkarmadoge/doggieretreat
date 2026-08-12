@@ -124,9 +124,23 @@ export function answerQuestion(raw: string, ctx: QueryContext): QueryAnswer | nu
   const attending = (date: string) =>
     attendingOn(date, ctx.dogs, ctx.recurring, ctx.exceptions);
 
+  /**
+   * The fast path only claims questions it can answer COMPLETELY. A compound
+   * question like "which dogs are red and coming in on Friday" matched the
+   * attendance pattern and answered just the attendance half, listing every
+   * dog instead of the red ones — a confidently wrong answer, which is worse
+   * than deferring. When an extra qualifier is present, decline and let the
+   * model handle it.
+   */
+  const hasExtraFilter =
+    /\b(red|yellow|green)\b/.test(t) ||
+    /\b(avoid|conflict|incompatib|not get along|apart)\b/.test(t) ||
+    /\b(and also|as well as|but not|except|excluding|without)\b/.test(t) ||
+    /\b(breed|puppy|senior|big|small|large)\b/.test(t);
+
   /* ---- attendance for a date ---- */
-  if (/\b(scheduled|attending|booked|coming in|in on|here|roster)\b/.test(t) ||
-      /^(how many dogs|who('s| is)? (in|coming))/.test(t)) {
+  if ((/\b(scheduled|attending|booked|coming in|in on|here|roster)\b/.test(t) ||
+       /^(how many dogs|who('s| is)? (in|coming))/.test(t)) && !hasExtraFilter) {
     const date = parseDateExpression(text, ctx.today) ?? ctx.today;
     const dogs = attending(date);
     const colours = {
