@@ -43,7 +43,24 @@ export function geminiKeyDiagnostics() {
   };
 }
 
-export const DEFAULT_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
+/**
+ * Model names get retired, and a retired name returns a 404 indistinguishable
+ * from a bad key — gemini-2.0-flash died exactly that way. So there is a
+ * pinned default plus an ordered fallback list, and the first name that works
+ * is remembered for the life of the process.
+ *
+ * Override with GEMINI_MODEL to pin something specific.
+ */
+export const DEFAULT_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+
+const FALLBACK_MODELS = [
+  DEFAULT_MODEL,
+  "gemini-2.5-flash",
+  "gemini-flash-latest",
+  "gemini-2.5-flash-lite",
+].filter((v, i, a) => a.indexOf(v) === i);
+
+let workingModel: string | null = null;
 
 /** The allow-list. Mirrors services/harness/intents.ts and must stay in step. */
 export const ALLOWED_INTENTS = [
@@ -118,9 +135,9 @@ export async function interpretWithGemini(
   userMessage: string,
   context: { today: string; weekday: string; dogNames: string[]; walkerNames: string[]; vanCount: number; floorNames: string[] }
 ): Promise<GeminiResult> {
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent` +
-    `?key=${encodeURIComponent(cfg.apiKey)}`;
+  const candidates = workingModel
+    ? [workingModel]
+    : [cfg.model, ...FALLBACK_MODELS].filter((v, i, a) => a.indexOf(v) === i);
 
   // Roster and date go in the SYSTEM channel as reference data. Only the
   // caretaker's sentence travels in the user channel, and it is wrapped in
@@ -157,21 +174,44 @@ export async function interpretWithGemini(
     safetySettings: [],
   };
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    return { ok: false, error: `Could not reach Gemini: ${String(e)}`, model: cfg.model };
+  let res: Response | null = null;
+  let model = candidates[0];
+  let lastError = "";
+
+  for (const candidate of candidates) {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidate)}:generateContent` +
+      `?key=${encodeURIComponent(cfg.apiKey)}`;
+    try {
+      const attempt = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      // 404 means this name is retired or unavailable to the key — try the
+      // next one. Any other status is a real answer and stops the loop.
+      if (attempt.status === 404) {
+        lastError = `${candidate}: not available`;
+        continue;
+      }
+      res = attempt;
+      model = candidate;
+      break;
+    } catch (e) {
+      lastError = String(e);
+    }
+  }
+
+  if (!res) {
+    return { ok: false, error: `No usable Gemini model. ${lastError}`, model };
   }
 
   if (!res.ok) {
     const text = await res.text();
-    return { ok: false, error: `Gemini ${res.status}: ${text.slice(0, 300)}`, model: cfg.model };
+    return { ok: false, error: `Gemini ${res.status}: ${text.slice(0, 300)}`, model };
   }
+
+  workingModel = model;
 
   const json = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
