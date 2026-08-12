@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { PageShell, useOperatingDate } from "@/App";
+import MessageComposer from "@/components/MessageComposer";
+import { buildWalkMessage } from "@/services/messaging/walkMessage";
 import {
-  ColorBadge, CopyButton, DateNav, EmptyState, LockButton, ReasonList,
+  ColorBadge, DateNav, EmptyState, LockButton, ReasonList,
   SectionTitle, StatusPill,
 } from "@/components/ui";
 import { useDogMap, useSettings, useWalkers } from "@/hooks/useData";
@@ -57,18 +59,24 @@ export default function WalkPlanner() {
     await db.walkLocks.filter((l) => l.date === date).delete();
   };
 
-  const summary = [
-    `${date} walk plan`,
-    ...plan.groups.map(
-      (g) => `${walkerName(g.walkerId)}: ${dogsOf(g.dogIds).map((d) => d.name).join(", ")}`
-    ),
-    ...(plan.excused.length
-      ? [`Excused: ${plan.excused.map((e) => dogMap.get(e.dogId)?.name).join(", ")}`]
-      : []),
-    ...(plan.unassigned.length
-      ? [`NEEDS REVIEW: ${plan.unassigned.map((u) => dogMap.get(u.dogId)?.name).join(", ")}`]
-      : []),
-  ].join("\n");
+  /**
+   * The message that actually reaches the walkers. Built from the plan, then
+   * editable — a shift lead almost always has one thing to add that the
+   * planner cannot know ("Mei finishing early, Aisha covers the 4pm").
+   */
+  const walkMessage = useMemo(
+    () =>
+      buildWalkMessage({
+        date,
+        plan,
+        dogs: dogMap,
+        walkers,
+        facilityName: settings.facilityName,
+        maxPerWalker: settings.maxDogsPerWalker,
+      }),
+    [date, plan, dogMap, walkers, settings.facilityName, settings.maxDogsPerWalker]
+  );
+
 
   return (
     <PageShell
@@ -81,7 +89,6 @@ export default function WalkPlanner() {
           <RefreshCw size={13} /> Regenerate unlocked
         </button>
         <button className="btn" onClick={clearAllLocks}>Clear all locks</button>
-        <CopyButton text={summary} label="Copy for WhatsApp" />
         <span className="text-[12px] text-ink-500">
           {attending.length} attending · {walkers.filter((w) => w.available).length} walkers available
         </span>
@@ -92,6 +99,13 @@ export default function WalkPlanner() {
           <b>Capacity shortfall.</b> {plan.capacityNote}
         </p>
       )}
+
+      <MessageComposer
+        generated={walkMessage}
+        storageKey={`walk:${date}`}
+        title="WhatsApp message"
+        hint="This is exactly what gets copied. Edit it if you need to add something the planner cannot know."
+      />
 
       {plan.groups.length === 0 && plan.unassigned.length === 0 ? (
         <div className="card">
