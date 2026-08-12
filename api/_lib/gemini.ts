@@ -129,6 +129,40 @@ export interface GeminiResult {
   model: string;
 }
 
+/**
+ * Models sometimes wrap JSON in markdown fences or prepend a stray line, and
+ * newer flash models spend output tokens on internal reasoning, which can
+ * truncate a response mid-object. Parse defensively and, when it still fails,
+ * surface what actually came back rather than a bare "malformed JSON".
+ */
+function parseModelJson<T>(raw: string): { ok: true; value: T } | { ok: false; sample: string } {
+  const cleaned = raw
+    .replace(/^\s*```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
+    .trim();
+
+  const attempt = (s: string) => {
+    try {
+      return JSON.parse(s) as T;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = attempt(cleaned);
+  if (direct) return { ok: true, value: direct };
+
+  // Fall back to the outermost {...} block.
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+  if (first !== -1 && last > first) {
+    const sliced = attempt(cleaned.slice(first, last + 1));
+    if (sliced) return { ok: true, value: sliced };
+  }
+
+  return { ok: false, sample: cleaned.slice(0, 200) };
+}
+
 export interface AnswerResult {
   ok: boolean;
   answer?: string;
@@ -208,7 +242,7 @@ export async function answerWithGemini(
               temperature: 0,
               responseMimeType: "application/json",
               responseSchema: ANSWER_SCHEMA,
-              maxOutputTokens: 400,
+              maxOutputTokens: 2048,
             },
           }),
         }
@@ -236,20 +270,19 @@ export async function answerWithGemini(
   const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!raw) return { ok: false, error: "Gemini returned no content.", model };
 
-  try {
-    const parsed = JSON.parse(raw) as { answer?: string; dogNames?: unknown; grounded?: boolean };
-    return {
-      ok: true,
-      model,
-      answer: String(parsed.answer ?? "").trim(),
-      dogNames: Array.isArray(parsed.dogNames)
-        ? parsed.dogNames.filter((x): x is string => typeof x === "string")
-        : [],
-      grounded: parsed.grounded !== false,
-    };
-  } catch {
-    return { ok: false, error: "Gemini returned malformed JSON.", model };
+  const parsed = parseModelJson<{ answer?: string; dogNames?: unknown; grounded?: boolean }>(raw);
+  if (!parsed.ok) {
+    return { ok: false, error: `Gemini returned unparseable output: ${parsed.sample}`, model };
   }
+  return {
+    ok: true,
+    model,
+    answer: String(parsed.value.answer ?? "").trim(),
+    dogNames: Array.isArray(parsed.value.dogNames)
+      ? parsed.value.dogNames.filter((x): x is string => typeof x === "string")
+      : [],
+    grounded: parsed.value.grounded !== false,
+  };
 }
 
 export async function interpretWithGemini(
@@ -292,7 +325,7 @@ export async function interpretWithGemini(
       temperature: 0,
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
-      maxOutputTokens: 512,
+      maxOutputTokens: 2048,
     },
     safetySettings: [],
   };
