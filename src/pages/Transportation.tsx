@@ -5,8 +5,10 @@ import clsx from "clsx";
 import L from "leaflet";
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet";
 import { PageShell, useOperatingDate } from "@/App";
+import MessageComposer from "@/components/MessageComposer";
+import { buildTransportMessage } from "@/services/messaging/transportMessage";
 import {
-  ColorBadge, CopyButton, DateNav, EmptyState, LockButton, ReasonList,
+  ColorBadge, DateNav, EmptyState, LockButton, ReasonList,
   SectionTitle, StatusPill,
 } from "@/components/ui";
 import { formatShort } from "@/utils/dates";
@@ -59,6 +61,8 @@ const depotIcon = L.divIcon({
 export default function Transportation() {
   const { date, setDate } = useOperatingDate();
   const [mode, setMode] = useState<"pickup" | "dropoff">("pickup");
+  /** Which van's run sheet to preview. "all" is the supervisor view. */
+  const [sheetVan, setSheetVan] = useState<number | "all">(0);
   const settings = useSettings();
   const dogMap = useDogMap();
   const vanOverrides = useVanOverrides();
@@ -126,36 +130,20 @@ export default function Transportation() {
    * distances only, which meant the traffic-aware routing never reached the
    * person driving.
    */
-  const summary = [
-    `${settings.facilityName} — ${formatShort(date)}`,
-    mode === "pickup" ? "Morning pickup" : "Evening drop-off",
-    `Leaves base ${clockAt(mode, 0)}`,
-    "",
-    ...plan.vans.flatMap((v) =>
-      v.stops.length
-        ? [
-            `VAN ${v.vanIndex + 1} — ${v.stops.length} stop${v.stops.length === 1 ? "" : "s"}, ` +
-              `${v.distanceKm.toFixed(1)} km${v.durationMinutes ? `, ${fmtMins(v.durationMinutes)}` : ""}`,
-            ...v.stops.map((s, i) => {
-              const names = dogsOf(s.dogIds).map((d) => d.name).join(" + ");
-              const eta = s.etaMinutes !== undefined ? `${clockAt(mode, s.etaMinutes)}  ` : "";
-              return `${eta}${i + 1}. ${names}\n     ${s.address}`;
-            }),
-            "",
-          ]
-        : []
-    ),
-    ...(plan.needsReview.length
-      ? [
-          `NEEDS REVIEW (not on a van): ${plan.needsReview
-            .map((r) => dogMap.get(r.dogId)?.name)
-            .join(", ")}`,
-        ]
-      : []),
-    travelSource === "google"
-      ? "Times are traffic-aware estimates, not guarantees."
-      : "Times are rough estimates — live routing is off.",
-  ].join("\n");
+
+  const transportMessage = useMemo(
+    () =>
+      buildTransportMessage({
+        date,
+        mode,
+        plan,
+        dogs: dogMap,
+        facilityName: settings.facilityName,
+        live: travelSource === "google",
+        vanIndex: sheetVan === "all" ? undefined : sheetVan,
+      }),
+    [date, mode, plan, dogMap, settings.facilityName, travelSource, sheetVan]
+  );
 
   const totalStops = allStops.length;
   const totalDogs = allStops.reduce((n, s) => n + s.dogIds.length, 0);
@@ -181,7 +169,6 @@ export default function Transportation() {
             </button>
           ))}
         </div>
-        <CopyButton text={summary} label="Copy for WhatsApp" />
         <button className="btn" onClick={() => window.print()}>
           <Printer size={13} /> Print run sheet
         </button>
@@ -241,6 +228,31 @@ export default function Transportation() {
           </div>
         </div>
       )}
+
+      <MessageComposer
+        generated={transportMessage}
+        storageKey={`transport:${date}:${mode}:${sheetVan}`}
+        ready={!loading}
+        title="Run sheet for WhatsApp"
+        hint="Send each driver their own van. Edit before sending if anything needs saying."
+        toolbar={
+          <div className="flex gap-0.5 rounded bg-ink-100 p-0.5">
+            {[...plan.vans.map((v) => v.vanIndex), "all" as const].map((v) => (
+              <button
+                key={String(v)}
+                onClick={() => setSheetVan(v)}
+                aria-pressed={sheetVan === v}
+                className={clsx(
+                  "rounded px-2.5 py-1 text-[12px] font-semibold",
+                  sheetVan === v ? "bg-white text-ink-900 shadow-sm" : "text-ink-500"
+                )}
+              >
+                {v === "all" ? "All vans" : `Van ${v + 1}`}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {totalStops === 0 ? (
         <div className="card">

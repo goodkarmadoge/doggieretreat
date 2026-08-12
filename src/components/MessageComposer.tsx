@@ -23,6 +23,22 @@ export interface MessageComposerProps {
   storageKey: string;
   title?: string;
   hint?: string;
+  /**
+   * Extra controls beside the tabs — used by Transportation to pick which
+   * van's run sheet is being previewed, since a driver should receive their
+   * own sheet rather than every van's.
+   */
+  toolbar?: ReactNode;
+  /**
+   * False while the data behind the message is still loading.
+   *
+   * Live queries resolve empty on first render, which briefly renders a
+   * message claiming every dog is unplaced. That is only true for a fraction
+   * of a second, but copying inside that window would paste an alarming and
+   * completely wrong roster into a staff group chat — so the copy button is
+   * withheld until the source data is actually there.
+   */
+  ready?: boolean;
 }
 
 interface Saved {
@@ -54,6 +70,8 @@ export default function MessageComposer({
   storageKey,
   title = "WhatsApp message",
   hint,
+  toolbar,
+  ready = true,
 }: MessageComposerProps) {
   const [tab, setTab] = useState<"preview" | "edit">("preview");
   const [saved, setSaved] = useState<Saved | null>(() => load(storageKey));
@@ -110,6 +128,8 @@ export default function MessageComposer({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {toolbar}
+
           <div className="flex gap-0.5 rounded bg-ink-100 p-0.5">
             {(["preview", "edit"] as const).map((t) => (
               <button
@@ -132,9 +152,9 @@ export default function MessageComposer({
             </button>
           )}
 
-          <button className="btn btn-sm btn-primary" onClick={copy}>
+          <button className="btn btn-sm btn-primary" onClick={copy} disabled={!ready}>
             {copied ? <Check size={13} /> : <Copy size={13} />}
-            {copied ? "Copied" : "Copy for WhatsApp"}
+            {!ready ? "Preparing…" : copied ? "Copied" : "Copy for WhatsApp"}
           </button>
         </div>
       </div>

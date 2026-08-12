@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import clsx from "clsx";
 import { PageShell, useOperatingDate } from "@/App";
+import MessageComposer from "@/components/MessageComposer";
+import { buildFloorMessage } from "@/services/messaging/floorMessage";
 import {
-  ColorBadge, CopyButton, DateNav, EmptyState, LockButton, ReasonList,
+  ColorBadge, DateNav, EmptyState, LockButton, ReasonList,
   SectionTitle, StatusPill,
 } from "@/components/ui";
-import { useDogMap, useFloorLocks, useFloors } from "@/hooks/useData";
+import { useDogMap, useFloorLocks, useFloors, useSettings } from "@/hooks/useData";
 import { useFloorPlan } from "@/hooks/usePlans";
 import { toggleFloorLock } from "@/db/repository";
 import { db } from "@/db/database";
@@ -20,6 +22,7 @@ export default function FloorPlanner() {
   const floors = useFloors();
   const dogMap = useDogMap();
   const locks = useFloorLocks();
+  const settings = useSettings();
 
   const [dragging, setDragging] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<{ dog: Dog; reasons: Reason[] } | null>(null);
@@ -61,16 +64,18 @@ export default function FloorPlanner() {
     await db.floorLocks.filter((l) => l.date === date).delete();
   };
 
-  const summary = [
-    `${date} floor plan`,
-    ...plan.floors.map((f) => {
-      const meta = floors.find((x) => x.id === f.floorId);
-      return `${meta?.name}: ${dogsOf(f.dogIds).map((d) => d.name).join(", ") || "empty"}`;
-    }),
-    ...(plan.needsReview.length
-      ? [`NEEDS REVIEW: ${plan.needsReview.map((r) => dogMap.get(r.dogId)?.name).join(", ")}`]
-      : []),
-  ].join("\n");
+
+  const floorMessage = useMemo(
+    () =>
+      buildFloorMessage({
+        date,
+        plan,
+        floors,
+        dogs: dogMap,
+        facilityName: settings.facilityName,
+      }),
+    [date, plan, floors, dogMap, settings.facilityName]
+  );
 
   const total = plan.floors.reduce((n, f) => n + f.dogIds.length, 0);
 
@@ -84,7 +89,6 @@ export default function FloorPlanner() {
         <button className="btn" onClick={clearLocks}>
           <RefreshCw size={13} /> Regenerate (clears locks)
         </button>
-        <CopyButton text={summary} label="Copy for WhatsApp" />
         <span className="text-[12px] text-ink-500">
           {total} placed · {plan.needsReview.length} awaiting review
         </span>
@@ -114,6 +118,14 @@ export default function FloorPlanner() {
           </div>
         </div>
       )}
+
+      <MessageComposer
+        generated={floorMessage}
+        storageKey={`floor:${date}`}
+        ready={floors.length > 0}
+        title="Floor board for WhatsApp"
+        hint="The room roster as staff will read it on their phones."
+      />
 
       {total === 0 && plan.needsReview.length === 0 ? (
         <div className="card">
