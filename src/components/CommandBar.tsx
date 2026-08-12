@@ -43,7 +43,18 @@ const EXAMPLES: Record<"ask" | "change", string[]> = {
  *
  * Nothing typed here reaches an instruction channel — see harness/systemPrompt.
  */
-export default function CommandBar() {
+export interface CommandBarProps {
+  /**
+   * "page" is the full-width card on Home. "dock" is the floating panel that
+   * follows staff onto the planner screens — same behaviour throughout, only
+   * the surrounding chrome differs, so there is one implementation of the
+   * harness UI rather than two that can drift apart.
+   */
+  variant?: "page" | "dock";
+}
+
+export default function CommandBar({ variant = "page" }: CommandBarProps) {
+  const dock = variant === "dock";
   const dogs = useDogs();
   const recurring = useRecurring();
   const floors = useFloors();
@@ -197,7 +208,14 @@ export default function CommandBar() {
   };
 
   return (
-    <section className="overflow-hidden rounded-lg bg-[#141B2B] shadow-lg ring-1 ring-white/10">
+    <section
+      className={clsx(
+        "bg-[#141B2B]",
+        dock
+          ? "flex h-full flex-col overflow-y-auto"
+          : "overflow-hidden rounded-lg shadow-lg ring-1 ring-white/10"
+      )}
+    >
       {/* header */}
       <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3">
         <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 ring-2 ring-brand-500/70">

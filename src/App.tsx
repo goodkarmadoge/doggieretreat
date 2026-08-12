@@ -10,6 +10,7 @@ import { ensureSeeded } from "@/db/repository";
 import { todayISO } from "@/utils/dates";
 import { useSettings } from "@/hooks/useData";
 
+import KarmaDock from "@/components/KarmaDock";
 import Today from "@/pages/Today";
 import Dogs from "@/pages/Dogs";
 import DogProfile from "@/pages/DogProfile";
@@ -186,6 +187,10 @@ export default function App() {
             <Route path="*" element={<Navigate to="/today" replace />} />
           </Routes>
         </main>
+
+        {/* Karma follows staff onto every screen except Home, which already
+            has the full-width version — two at once would just be confusing. */}
+        {!location.pathname.startsWith("/today") && <KarmaDock />}
       </div>
     </DateCtx.Provider>
   );

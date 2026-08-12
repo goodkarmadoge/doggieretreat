@@ -612,7 +612,7 @@ export default function Dogs() {
       {/* Sticky save bar — the only place unsaved work is visible, so it stays
           on screen until resolved. */}
       {dirtyCount > 0 && (
-        <div className="sticky bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 rounded-md border border-brand-500 bg-white px-4 py-3 shadow-lg">
+        <div className="sticky bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 rounded-md border border-brand-500 bg-white px-4 py-3 pr-4 shadow-lg sm:pr-[13.5rem]">
           <span className="text-[13px] font-semibold text-ink-800">
             {dirtyCount} {dirtyCount === 1 ? "dog has" : "dogs have"} unsaved changes
             <span className="ml-1 font-normal text-ink-500">
