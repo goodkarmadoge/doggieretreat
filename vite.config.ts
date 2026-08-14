@@ -189,9 +189,9 @@ function devApiRoutes(
           res.statusCode = 200;
           res.end(JSON.stringify({
             configured: false,
-            reason: "no_browser_key",
+            reason: "no_maps_key",
             message:
-              "GOOGLE_MAPS_BROWSER_KEY is not set. Add a referrer-restricted Maps JavaScript API key to .env.local for local development.",
+              "No Maps API key is set. Add GOOGLE_MAPS_BROWSER_KEY (preferred) or GOOGLE_MAPS_API_KEY to .env.local for local development.",
           }));
           return;
         }
@@ -283,15 +283,16 @@ export default defineConfig(({ mode }) => {
   const supabaseKey =
     env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY || env.SUPABASE_KEY;
 
-  // Browser Maps key. Kept distinct from devKey above: this one is served to
-  // the page, so it must be the referrer-restricted Maps JS key, never the
-  // Geocoding/Routes key.
+  // Browser Maps key, served to the page. A dedicated key is preferred; the
+  // fallback to devKey mirrors getBrowserApiKey in api/_lib/google.ts, where
+  // the cost of sharing one key is written down.
   const browserMapsKey =
     env.GOOGLE_MAPS_BROWSER_KEY ||
     env.GOOGLE_MAPS_PUBLIC_KEY ||
     env.PUBLIC_GOOGLE_MAPS_API_KEY ||
     env.VITE_GOOGLE_MAPS_API_KEY ||
-    env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    devKey;
 
   const mapId = env.GOOGLE_MAPS_MAP_ID || env.MAPS_MAP_ID;
 

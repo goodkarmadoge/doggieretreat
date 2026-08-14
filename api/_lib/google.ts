@@ -122,8 +122,31 @@ function firstEnv(names: readonly string[]): string | null {
   return null;
 }
 
-export function getBrowserApiKey(): string | null {
-  return firstEnv(BROWSER_KEY_NAMES);
+/**
+ * Resolves the key the browser will use for the Maps JavaScript API.
+ *
+ * A dedicated browser key is preferred and checked first. Failing that, this
+ * falls back to the server key — a deliberate operator decision, not an
+ * oversight, taken so the map works without provisioning a second credential.
+ *
+ * What that trades away, recorded here so it is not rediscovered the hard way:
+ * the returned key is served to every visitor and is therefore public. The
+ * server key can call Geocoding and Routes, both billed per request, so anyone
+ * reading it can spend against this account.
+ *
+ * It cannot be locked down with an HTTP referrer restriction either. Referrer
+ * checks only apply to browser traffic, and the Vercel functions in this
+ * directory send no referrer — adding one would break /api/geocode and
+ * /api/route-matrix. The containing control is a quota cap and a billing alert
+ * in the Google Cloud console, which bounds the exposure rather than removing
+ * it. Provisioning GOOGLE_MAPS_BROWSER_KEY removes it.
+ */
+export function getBrowserApiKey(): { key: string; shared: boolean } | null {
+  const dedicated = firstEnv(BROWSER_KEY_NAMES);
+  if (dedicated) return { key: dedicated, shared: false };
+
+  const server = getApiKey();
+  return server ? { key: server, shared: true } : null;
 }
 
 export function getMapId(): string {
