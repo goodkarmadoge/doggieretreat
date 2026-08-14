@@ -2,10 +2,9 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, Printer, RotateCcw, Ruler, Waypoints } from "lucide-react";
 import clsx from "clsx";
-import L from "leaflet";
-import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet";
 import { PageShell, useOperatingDate } from "@/App";
 import MessageComposer from "@/components/MessageComposer";
+import TransportMap from "@/components/TransportMap";
 import { buildTransportMessage } from "@/services/messaging/transportMessage";
 import {
   ColorBadge, DateNav, EmptyState, LockButton, ReasonList,
@@ -39,24 +38,6 @@ function clockAt(mode: "pickup" | "dropoff", minutesFromBase: number): string {
   d.setMinutes(d.getMinutes() + minutesFromBase);
   return d.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
-
-const numberIcon = (n: number, color: string) =>
-  L.divIcon({
-    className: "",
-    html: `<div style="background:${color};color:#fff;width:24px;height:24px;border-radius:50%;
-      display:flex;align-items:center;justify-content:center;font:700 12px/1 ui-monospace,monospace;
-      box-shadow:0 1px 4px rgba(0,0,0,.4)">${n}</div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-  });
-
-const depotIcon = L.divIcon({
-  className: "",
-  html: `<div style="background:#0E1614;color:#fff;padding:3px 7px;border-radius:4px;
-    font:700 11px/1.2 system-ui;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">Retreat</div>`,
-  iconSize: [64, 20],
-  iconAnchor: [32, 10],
-});
 
 export default function Transportation() {
   const { date, setDate } = useOperatingDate();
@@ -238,46 +219,16 @@ export default function Transportation() {
         </div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
-          <div className="card overflow-hidden" style={{ minHeight: 460 }}>
-            <MapContainer center={center} zoom={11} style={{ height: 460, width: "100%" }} scrollWheelZoom>
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <Marker position={depot} icon={depotIcon}>
-                <Popup>{settings.facilityName}<br />{settings.facilityAddress}</Popup>
-              </Marker>
-
-              {plan.vans.map((van) => {
-                const color = VAN_COLORS[van.vanIndex % VAN_COLORS.length];
-                if (!van.stops.length) return null;
-                const line: [number, number][] = [
-                  depot,
-                  ...van.stops.map((s) => [s.lat, s.lng] as [number, number]),
-                  depot,
-                ];
-                return (
-                  <div key={van.vanIndex}>
-                    <Polyline positions={line} pathOptions={{ color, weight: 3, opacity: 0.75 }} />
-                    {van.stops.map((stop, i) => (
-                      <Marker
-                        key={stop.householdKey}
-                        position={[stop.lat, stop.lng]}
-                        icon={numberIcon(i + 1, color)}
-                      >
-                        <Popup>
-                          <b>Stop {i + 1} · Van {van.vanIndex + 1}</b>
-                          <br />
-                          {dogsOf(stop.dogIds).map((d) => d.name).join(", ")}
-                          <br />
-                          {stop.address}
-                        </Popup>
-                      </Marker>
-                    ))}
-                  </div>
-                );
-              })}
-            </MapContainer>
+          <div className="card map-frame" style={{ minHeight: 460 }}>
+            <TransportMap
+              center={center}
+              depot={depot}
+              facilityName={settings.facilityName}
+              facilityAddress={settings.facilityAddress}
+              vans={plan.vans}
+              colorFor={(i) => VAN_COLORS[i % VAN_COLORS.length]}
+              namesFor={(ids) => dogsOf(ids).map((d) => d.name).join(", ")}
+            />
           </div>
 
           <div className="flex flex-col gap-3">

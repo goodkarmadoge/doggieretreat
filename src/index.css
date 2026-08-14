@@ -3,8 +3,6 @@
 @import "@fontsource/playfair-display/600.css";
 @import "@fontsource/playfair-display/700.css";
 
-@import "leaflet/dist/leaflet.css";
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -131,9 +129,18 @@
   }
 }
 
-/* Leaflet sits under sticky chrome, never over it. */
-.leaflet-container {
+/* The map sits under sticky chrome, never over it. Google Maps creates its own
+   stacking context, so the frame is pinned to z-index 0 rather than trusting
+   the default paint order. */
+.map-frame {
+  position: relative;
   z-index: 0;
-  font-family: inherit;
   border-radius: 16px;
+  overflow: hidden;
+}
+
+/* Info window text should read as part of the app, not as Google's chrome. */
+.map-frame .gm-style-iw {
+  font-family: inherit;
+  font-size: 12.5px;
 }

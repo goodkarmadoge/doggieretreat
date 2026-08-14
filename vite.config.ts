@@ -26,7 +26,9 @@ function devApiRoutes(
   apiKey: string | undefined,
   geminiKey: string | undefined,
   supabaseUrl: string | undefined,
-  supabaseKey: string | undefined
+  supabaseKey: string | undefined,
+  browserMapsKey: string | undefined,
+  mapId: string | undefined
 ): Plugin {
   return {
     name: "doggie-retreat-dev-api",
@@ -168,10 +170,44 @@ function devApiRoutes(
         }
       };
 
+      /**
+       * Dev mirror of api/maps-config.ts. The browser Maps key is a separate
+       * credential from the server one on purpose — see _lib/google.ts — so
+       * dev reads its own var rather than reusing apiKey.
+       */
+      const handleMapsConfig = (
+        req: import("node:http").IncomingMessage,
+        res: import("node:http").ServerResponse
+      ) => {
+        res.setHeader("Content-Type", "application/json");
+        if (req.method !== "GET") {
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: "Use GET." }));
+          return;
+        }
+        if (!browserMapsKey) {
+          res.statusCode = 200;
+          res.end(JSON.stringify({
+            configured: false,
+            reason: "no_browser_key",
+            message:
+              "GOOGLE_MAPS_BROWSER_KEY is not set. Add a referrer-restricted Maps JavaScript API key to .env.local for local development.",
+          }));
+          return;
+        }
+        res.statusCode = 200;
+        res.end(JSON.stringify({
+          configured: true,
+          key: browserMapsKey,
+          mapId: mapId || "DEMO_MAP_ID",
+        }));
+      };
+
       server.middlewares.use(async (req, res, next) => {
         const url = req.url?.split("?")[0];
         if (url === "/api/interpret") return handleInterpret(req, res);
         if (url === "/api/sync") return handleSync(req, res);
+        if (url === "/api/maps-config") return handleMapsConfig(req, res);
         if (url !== "/api/geocode" && url !== "/api/route-matrix") return next();
 
         res.setHeader("Content-Type", "application/json");
@@ -247,8 +283,23 @@ export default defineConfig(({ mode }) => {
   const supabaseKey =
     env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY || env.SUPABASE_KEY;
 
+  // Browser Maps key. Kept distinct from devKey above: this one is served to
+  // the page, so it must be the referrer-restricted Maps JS key, never the
+  // Geocoding/Routes key.
+  const browserMapsKey =
+    env.GOOGLE_MAPS_BROWSER_KEY ||
+    env.GOOGLE_MAPS_PUBLIC_KEY ||
+    env.PUBLIC_GOOGLE_MAPS_API_KEY ||
+    env.VITE_GOOGLE_MAPS_API_KEY ||
+    env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  const mapId = env.GOOGLE_MAPS_MAP_ID || env.MAPS_MAP_ID;
+
   return {
-    plugins: [react(), devApiRoutes(devKey, geminiKey, supabaseUrl, supabaseKey)],
+    plugins: [
+      react(),
+      devApiRoutes(devKey, geminiKey, supabaseUrl, supabaseKey, browserMapsKey, mapId),
+    ],
     resolve: {
       alias: { "@": path.resolve(__dirname, "./src") },
     },

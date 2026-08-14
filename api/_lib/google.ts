@@ -77,6 +77,60 @@ export function keyDiagnostics(): {
 }
 
 /* ------------------------------------------------------------------ */
+/* Browser key                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The Maps JavaScript API runs in the page and authenticates from the browser,
+ * so unlike Geocoding and Routes it cannot be proxied — its key is necessarily
+ * public to anyone who opens devtools. Google's answer to that is restriction,
+ * not secrecy: an HTTP-referrer-restricted key limited to the Maps JavaScript
+ * API is only usable from your own domains.
+ *
+ * That makes it a categorically different credential from the one above, which
+ * is why it gets its own env var. Never serve KEY_NAMES to the browser: those
+ * keys can call Geocoding and Routes, both billed per request, and publishing
+ * one hands out a live invoice.
+ */
+export const BROWSER_KEY_NAMES = [
+  "GOOGLE_MAPS_BROWSER_KEY",
+  "GOOGLE_MAPS_PUBLIC_KEY",
+  "PUBLIC_GOOGLE_MAPS_API_KEY",
+  "VITE_GOOGLE_MAPS_API_KEY",
+  "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
+] as const;
+
+/**
+ * Map ID for the Maps JS vector renderer. Advanced Markers require one.
+ * Google's DEMO_MAP_ID works without any Cloud console setup and is the
+ * documented stand-in, so the map renders before anyone configures styling.
+ */
+export const MAP_ID_NAMES = ["GOOGLE_MAPS_MAP_ID", "MAPS_MAP_ID"] as const;
+
+export const DEMO_MAP_ID = "DEMO_MAP_ID";
+
+function firstEnv(names: readonly string[]): string | null {
+  for (const name of names) {
+    const v = process.env[name]?.trim();
+    if (v) return v;
+  }
+  // Same case-insensitive rescue as getApiKey — Vercel keeps the casing typed.
+  const wanted = new Set(names.map((n) => n.toLowerCase()));
+  for (const [name, value] of Object.entries(process.env)) {
+    if (wanted.has(name.toLowerCase()) && value?.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function getBrowserApiKey(): string | null {
+  return firstEnv(BROWSER_KEY_NAMES);
+}
+
+export function getMapId(): string {
+  return firstEnv(MAP_ID_NAMES) ?? DEMO_MAP_ID;
+}
+
+/* ------------------------------------------------------------------ */
 /* Geocoding                                                           */
 /* ------------------------------------------------------------------ */
 
