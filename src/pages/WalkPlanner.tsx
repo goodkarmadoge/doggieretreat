@@ -100,13 +100,6 @@ export default function WalkPlanner() {
         </p>
       )}
 
-      <MessageComposer
-        generated={walkMessage}
-        storageKey={`walk:${date}`}
-        title="WhatsApp message"
-        hint="This is exactly what gets copied. Edit it if you need to add something the planner cannot know."
-      />
-
       {plan.groups.length === 0 && plan.unassigned.length === 0 ? (
         <div className="card">
           <EmptyState
@@ -216,6 +209,15 @@ export default function WalkPlanner() {
           </ul>
         </section>
       )}
+
+      {/* The message is the final output of this page, so it sits after the
+          plan it describes — read the groups, then copy what gets sent. */}
+      <MessageComposer
+        generated={walkMessage}
+        storageKey={`walk:${date}`}
+        title="WhatsApp message"
+        hint="This is exactly what gets copied. Edit it if you need to add something the planner cannot know."
+      />
     </PageShell>
   );
 }

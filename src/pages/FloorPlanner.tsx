@@ -119,14 +119,6 @@ export default function FloorPlanner() {
         </div>
       )}
 
-      <MessageComposer
-        generated={floorMessage}
-        storageKey={`floor:${date}`}
-        ready={floors.length > 0}
-        title="Floor board for WhatsApp"
-        hint="The room roster as staff will read it on their phones."
-      />
-
       {total === 0 && plan.needsReview.length === 0 ? (
         <div className="card">
           <EmptyState title="No dogs to place on this date" hint="Nobody is attending, so there is no floor plan to build." />
@@ -251,6 +243,16 @@ export default function FloorPlanner() {
           </ul>
         </section>
       )}
+
+      {/* The message is the final output of this page, so it sits after the
+          floor board it describes — read the placement, then copy what gets sent. */}
+      <MessageComposer
+        generated={floorMessage}
+        storageKey={`floor:${date}`}
+        ready={floors.length > 0}
+        title="Floor board for WhatsApp"
+        hint="The room roster as staff will read it on their phones."
+      />
     </PageShell>
   );
 }

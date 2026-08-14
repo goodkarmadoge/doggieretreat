@@ -229,31 +229,6 @@ export default function Transportation() {
         </div>
       )}
 
-      <MessageComposer
-        generated={transportMessage}
-        storageKey={`transport:${date}:${mode}:${sheetVan}`}
-        ready={!loading}
-        title="Run sheet for WhatsApp"
-        hint="Send each driver their own van. Edit before sending if anything needs saying."
-        toolbar={
-          <div className="flex gap-0.5 rounded bg-ink-100 p-0.5">
-            {[...plan.vans.map((v) => v.vanIndex), "all" as const].map((v) => (
-              <button
-                key={String(v)}
-                onClick={() => setSheetVan(v)}
-                aria-pressed={sheetVan === v}
-                className={clsx(
-                  "rounded px-2.5 py-1 text-[12px] font-semibold",
-                  sheetVan === v ? "bg-white text-ink-900 shadow-sm" : "text-ink-500"
-                )}
-              >
-                {v === "all" ? "All vans" : `Van ${v + 1}`}
-              </button>
-            ))}
-          </div>
-        }
-      />
-
       {totalStops === 0 ? (
         <div className="card">
           <EmptyState
@@ -475,6 +450,33 @@ export default function Transportation() {
           </ul>
         </section>
       )}
+
+      {/* The run sheet is the final output of this page, so it sits after the
+          routes it describes — check the stops, then copy what the driver gets. */}
+      <MessageComposer
+        generated={transportMessage}
+        storageKey={`transport:${date}:${mode}:${sheetVan}`}
+        ready={!loading}
+        title="Run sheet for WhatsApp"
+        hint="Send each driver their own van. Edit before sending if anything needs saying."
+        toolbar={
+          <div className="flex gap-0.5 rounded bg-ink-100 p-0.5">
+            {[...plan.vans.map((v) => v.vanIndex), "all" as const].map((v) => (
+              <button
+                key={String(v)}
+                onClick={() => setSheetVan(v)}
+                aria-pressed={sheetVan === v}
+                className={clsx(
+                  "rounded px-2.5 py-1 text-[12px] font-semibold",
+                  sheetVan === v ? "bg-white text-ink-900 shadow-sm" : "text-ink-500"
+                )}
+              >
+                {v === "all" ? "All vans" : `Van ${v + 1}`}
+              </button>
+            ))}
+          </div>
+        }
+      />
     </PageShell>
   );
 }
