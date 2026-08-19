@@ -100,7 +100,7 @@ export default function App() {
           >
             <Menu size={20} />
           </button>
-          <img src="/logo.png" alt="Doggie Retreat" className="h-9 w-auto" width={400} height={268} />
+          <img src="/karma.png" alt="Karma" className="h-9 w-9 [image-rendering:pixelated]" width={256} height={256} />
           <span className="ml-auto truncate text-[12px] font-semibold text-ink-500">
             {NAV.find((n) => location.hash.startsWith(`#${n.to}`))?.label ?? "Home"}
           </span>
@@ -127,11 +127,11 @@ export default function App() {
         >
           <div className="flex flex-col items-center gap-2 border-b border-ink-200 px-4 py-5">
             <img
-              src="/logo.png"
-              alt="Doggie Retreat"
-              className="w-[152px] max-w-full"
-              width={400}
-              height={268}
+              src="/karma.png"
+              alt="Karma"
+              className="h-[104px] w-[104px] max-w-full [image-rendering:pixelated]"
+              width={256}
+              height={256}
             />
             {/* Brand promise, set in the display face — one of the few places
                 Playfair is appropriate inside operational software. */}
